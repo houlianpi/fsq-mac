@@ -1,0 +1,14 @@
+{
+    "mac": {
+        "platformName": "Mac",
+        "automationName": "Mac2",
+        "bundleId": "",
+        "appium:fullReset": false,
+        "appium:sessionTimeout": 6000,
+        "appium:newCommandTimeout": 6000,
+        "shouldUseSingletonTestManager": false,
+        "waitForQuiescence": false,
+        "showServerLogs": true,
+        "server_url": "http://127.0.0.1:4723"
+    }
+}

@@ -1,0 +1,894 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
+"""Backend Adapter: Appium Mac2.
+
+Wraps Appium WebDriver for macOS automation.  All Appium-specific logic lives
+here so the upper layers stay driver-agnostic.
+"""
+
+from __future__ import annotations
+
+import logging
+import subprocess
+import threading
+import time
+import xml.etree.ElementTree as ET
+from typing import Any
+
+from appium import webdriver
+from appium.options.mac import Mac2Options
+from appium.webdriver.common.appiumby import AppiumBy
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+from fsq_mac.models import ElementInfo, ErrorCode
+
+logger = logging.getLogger("mac-cli.adapter")
+
+
+# ---------------------------------------------------------------------------
+# AppleScript safety
+# ---------------------------------------------------------------------------
+
+def _safe_applescript_str(value: str) -> str:
+    """Escape a string for safe use inside AppleScript double-quoted strings.
+
+    Rejects characters that could break out of the string context.
+    """
+    if '"' in value or '\\' in value:
+        raise ValueError(f"Unsafe characters in AppleScript string: {value!r}")
+    return value
+
+# ---------------------------------------------------------------------------
+# Locator strategy mapping
+# ---------------------------------------------------------------------------
+
+_STRATEGY_MAP = {
+    "accessibility_id": AppiumBy.ACCESSIBILITY_ID,
+    "name": AppiumBy.NAME,
+    "id": AppiumBy.ID,
+    "class_name": AppiumBy.CLASS_NAME,
+    "xpath": AppiumBy.XPATH,
+    "ios_predicate": AppiumBy.IOS_PREDICATE,
+    "": AppiumBy.ACCESSIBILITY_ID,
+}
+
+
+def _resolve_locator(strategy: str, value: str):
+    by = _STRATEGY_MAP.get(strategy.lower().strip(), AppiumBy.ACCESSIBILITY_ID)
+    return (by, value)
+
+
+# ---------------------------------------------------------------------------
+# Page source helpers
+# ---------------------------------------------------------------------------
+
+def _is_visible(attrib: dict) -> bool:
+    if attrib.get("visible") == "false":
+        return False
+    if attrib.get("displayed") == "false":
+        return False
+    if attrib.get("width") == "0" or attrib.get("height") == "0":
+        return False
+    return True
+
+
+def _parse_frame(attrib: dict) -> dict[str, int] | None:
+    try:
+        x = int(attrib.get("x", 0))
+        y = int(attrib.get("y", 0))
+        w = int(attrib.get("width", 0))
+        h = int(attrib.get("height", 0))
+        return {"x": x, "y": y, "width": w, "height": h}
+    except (ValueError, TypeError):
+        return None
+
+
+def parse_ui_tree(page_source: str, max_elements: int = 200) -> list[ElementInfo]:
+    """Parse Appium XML page source into a list of ElementInfo."""
+    elements: list[ElementInfo] = []
+    try:
+        root = ET.fromstring(page_source)
+    except ET.ParseError:
+        return elements
+
+    idx = 0
+    doc_idx = -1
+    for elem in root.iter():
+        if elem.tag in ("AppiumAUT", "hierarchy"):
+            continue
+        doc_idx += 1
+
+        if not _is_visible(elem.attrib):
+            continue
+
+        role = elem.tag.replace("XCUIElementType", "")
+        name = elem.attrib.get("name") or elem.attrib.get("label") or ""
+        label = elem.attrib.get("label") or ""
+        value = elem.attrib.get("value")
+        enabled = elem.attrib.get("enabled", "true") == "true"
+        focused = elem.attrib.get("focused", "false") == "true"
+
+        # Skip elements without meaningful info
+        if not name and not label and not value and role in ("Other", "Group"):
+            continue
+
+        eid = f"e{idx}"
+        hint = f"accessibility_id:{name}" if name else None
+
+        elements.append(ElementInfo(
+            element_id=eid,
+            role=role,
+            name=name or None,
+            label=label or None,
+            value=value,
+            enabled=enabled,
+            visible=True,
+            focused=focused,
+            frame=_parse_frame(elem.attrib),
+            locator_hint=hint,
+            doc_order_index=doc_idx,
+        ))
+        idx += 1
+        if idx >= max_elements:
+            break
+
+    return elements
+
+
+def simplify_page_source(page_source: str, max_size: int = 200000) -> str:
+    """Simplify page source if too large — keeps visible elements only."""
+    if len(page_source) <= max_size:
+        return page_source
+
+    try:
+        root = ET.fromstring(page_source)
+
+        # Filter invisible
+        def _filter(el):
+            children = [c for c in (el if el.tag == "hierarchy" else el) if True]
+            keep = []
+            for child in list(el):
+                if _is_visible(child.attrib) or child.tag == "hierarchy":
+                    filtered = _filter(child)
+                    if filtered is not None:
+                        keep.append(filtered)
+                el.remove(child)
+            for k in keep:
+                el.append(k)
+            if el.tag == "hierarchy" or _is_visible(el.attrib) or len(el):
+                return el
+            return None
+
+        _filter(root)
+        result = ET.tostring(root, encoding="unicode")
+        if len(result) <= max_size:
+            return result
+
+        # Truncate long attributes
+        for elem in root.iter():
+            for attr in ("text", "content-desc", "value"):
+                v = elem.attrib.get(attr, "")
+                if len(v) > 100:
+                    elem.attrib[attr] = v[:97] + "..."
+        result = ET.tostring(root, encoding="unicode")
+        return result[:max_size]
+
+    except ET.ParseError:
+        return page_source[:max_size]
+
+
+# ---------------------------------------------------------------------------
+# Menu bar filtering (ported from mac_driver_tool.py)
+# ---------------------------------------------------------------------------
+
+def _is_menu_bar_element(element, driver) -> bool:
+    try:
+        tag = getattr(element, "tag_name", "")
+        hittable = element.get_attribute("hittable") or ""
+        loc = element.location
+        size = element.size
+        w, h = size.get("width", 0), size.get("height", 0)
+        y = loc.get("y", 0)
+
+        if tag.endswith(":") and (w == 0 and h == 0 or hittable == "false"):
+            return True
+        if w == 0 and h == 0 and hittable == "false":
+            return True
+        if y < 50 and w > 50:
+            etype = (element.get_attribute("elementType") or "").lower()
+            if any(m in etype for m in ("menubar", "menubaritem", "menu", "menuitem")):
+                return True
+        return False
+    except Exception:
+        try:
+            return element.location.get("y", 0) < 35
+        except Exception:
+            return False
+
+
+def _select_best_element(driver, locator, strategy: str, value: str):
+    try:
+        elements = driver.find_elements(*locator)
+        if len(elements) > 1:
+            for e in elements:
+                if not _is_menu_bar_element(e, driver):
+                    return e
+            return elements[0] if elements else None
+        elif len(elements) == 1:
+            return elements[0]
+        else:
+            return WebDriverWait(driver, 5).until(EC.presence_of_element_located(locator))
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Adapter class
+# ---------------------------------------------------------------------------
+
+class AppiumMac2Adapter:
+    """Backend adapter that talks to Appium Mac2 driver."""
+
+    def __init__(self, config: dict):
+        self._config = config
+        self._server_url: str = config.get("server_url", "http://127.0.0.1:4723")
+        self._driver = None
+        # Snapshot: maps element_id -> WebElement for the current UI context
+        self._element_refs: dict[str, Any] = {}
+        self._snapshot_generation: int = 0
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def connect(self, bundle_id: str | None = None) -> None:
+        caps = dict(self._config)
+        caps.pop("server_url", None)
+        if bundle_id:
+            caps["bundleId"] = bundle_id
+        options = Mac2Options().load_capabilities(caps)
+        self._driver = webdriver.Remote(self._server_url, options=options)
+
+    @property
+    def connected(self) -> bool:
+        if not self._driver:
+            return False
+        try:
+            self._driver.get_window_size()
+            return True
+        except Exception:
+            return False
+
+    def disconnect(self) -> None:
+        if not self._driver:
+            return
+        try:
+            quit_thread = threading.Thread(target=self._driver.quit)
+            quit_thread.start()
+            quit_thread.join(timeout=5)
+            if quit_thread.is_alive():
+                self._force_kill_app()
+        except Exception as exc:
+            logger.warning("Error during disconnect: %s", exc)
+        finally:
+            self._driver = None
+            self._invalidate_refs()
+
+    def _force_kill_app(self) -> None:
+        bid = self._config.get("bundleId", "")
+        if not bid:
+            return
+        try:
+            safe_bid = _safe_applescript_str(bid)
+            cmd = [
+                "osascript", "-e",
+                f'tell application "System Events" to unix id of processes whose bundle identifier is "{safe_bid}"',
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode == 0 and result.stdout.strip():
+                for pid in result.stdout.strip().split(","):
+                    pid = pid.strip()
+                    if pid.isdigit():
+                        subprocess.run(["kill", "-9", pid], check=False)
+        except Exception as exc:
+            logger.warning("Force kill failed: %s", exc)
+
+    # -- element refs -------------------------------------------------------
+
+    def _invalidate_refs(self) -> None:
+        self._snapshot_generation += 1
+
+    def _store_ref(self, eid: str, web_element) -> None:
+        self._element_refs[eid] = (self._snapshot_generation, web_element)
+
+    def _get_ref(self, eid: str):
+        entry = self._element_refs.get(eid)
+        if entry is None:
+            return None, ErrorCode.ELEMENT_NOT_FOUND
+        gen, web_el = entry
+        if gen != self._snapshot_generation:
+            return None, ErrorCode.ELEMENT_REFERENCE_STALE
+        # Quick liveness check
+        try:
+            web_el.location
+            return web_el, None
+        except Exception:
+            return None, ErrorCode.ELEMENT_REFERENCE_STALE
+
+    # -- resolve ref: element_id or locator ---------------------------------
+
+    def _resolve_ref(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5):
+        """Resolve a ref to a WebElement.
+
+        Returns (element, error_code|None).
+        """
+        # Try element_id first
+        if ref.startswith("e") and ref[1:].isdigit():
+            el, err = self._get_ref(ref)
+            if el is not None:
+                return el, None
+            # Fall through to locator if stale
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE:
+                return None, err
+
+        # Locator-based resolution
+        locator = _resolve_locator(strategy, ref)
+        el = _select_best_element(self._driver, locator, strategy, ref)
+        if el is None:
+            return None, ErrorCode.ELEMENT_NOT_FOUND
+        return el, None
+
+    # -- app operations -----------------------------------------------------
+
+    def app_launch(self, bundle_id: str, arguments: list | None = None) -> dict:
+        if self._driver and self.connected:
+            self.disconnect()
+        cfg = dict(self._config)
+        cfg["bundleId"] = bundle_id
+        if arguments:
+            cfg["arguments"] = arguments
+        cfg.pop("server_url", None)
+        options = Mac2Options().load_capabilities(cfg)
+        self._driver = webdriver.Remote(self._server_url, options=options)
+        self._invalidate_refs()
+        return self._frontmost_info()
+
+    def app_activate(self, bundle_id: str) -> dict:
+        if not self._driver or not self.connected:
+            raise _backend_error("No active session")
+        try:
+            self._driver.activate_app(bundle_id)
+        except Exception:
+            # Mac2 driver may not support activate_app — fall back to AppleScript
+            safe_bid = _safe_applescript_str(bundle_id)
+            subprocess.run(
+                ["osascript", "-e",
+                 f'tell application id "{safe_bid}" to activate'],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+        self._invalidate_refs()
+        time.sleep(1)
+        # Return info about the activated app, not just the managed session's app
+        info = {"bundle_id": bundle_id}
+        try:
+            safe_bid = _safe_applescript_str(bundle_id)
+            result = subprocess.run(
+                ["osascript", "-e",
+                 f'tell application "System Events" to get name of first application process whose bundle identifier is "{safe_bid}"'],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                info["name"] = result.stdout.strip()
+        except Exception:
+            pass
+        return info
+
+    def app_terminate(self, bundle_id: str) -> dict:
+        if not self._driver or not self.connected:
+            raise _backend_error("No active session")
+        try:
+            self._driver.terminate_app(bundle_id)
+        except Exception:
+            # Mac2 driver may not support terminate_app — fall back to AppleScript
+            safe_bid = _safe_applescript_str(bundle_id)
+            subprocess.run(
+                ["osascript", "-e",
+                 f'tell application id "{safe_bid}" to quit'],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+        self._invalidate_refs()
+        return {"terminated": bundle_id}
+
+    def app_current(self) -> dict:
+        """Return the actual macOS frontmost application."""
+        _SEP = "\x1f"  # ASCII Unit Separator — safe delimiter
+        try:
+            script = ('tell application "System Events"\n'
+                      '  set fp to first application process whose frontmost is true\n'
+                      '  set appName to name of fp\n'
+                      '  set appBid to bundle identifier of fp\n'
+                      '  return appName & ASCII character 31 & appBid\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0 and _SEP in result.stdout.strip():
+                parts = result.stdout.strip().split(_SEP, 1)
+                return {"name": parts[0], "bundle_id": parts[1]}
+        except Exception:
+            pass
+        return self._frontmost_info()
+
+    def app_list(self) -> list[dict]:
+        """List visible applications using AppleScript."""
+        try:
+            # Use newline-delimited output to avoid comma-in-name ambiguity
+            script = ('tell application "System Events"\n'
+                      '  set procs to every application process whose background only is false\n'
+                      '  set out to ""\n'
+                      '  set sep to ASCII character 31\n'
+                      '  repeat with p in procs\n'
+                      '    set out to out & name of p & sep & bundle identifier of p & "\n"\n'
+                      '  end repeat\n'
+                      '  return out\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 0:
+                return []
+            apps = []
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if "\x1f" not in line:
+                    continue
+                name, bid = line.split("\x1f", 1)
+                if bid and bid != "missing value":
+                    apps.append({"name": name, "bundle_id": bid})
+            return apps
+        except Exception:
+            return []
+
+    def _managed_bundle_id(self) -> str:
+        """Return the bundle ID of the app managed by this Appium session."""
+        if not self._driver:
+            return ""
+        caps = self._driver.capabilities
+        return caps.get("bundleId") or caps.get("appium:bundleId") or self._config.get("bundleId", "")
+
+    def _frontmost_info(self) -> dict:
+        try:
+            bid = self._managed_bundle_id()
+            info = {"bundle_id": bid}
+            # Enrich with app name via AppleScript using bundle ID (#7)
+            try:
+                safe_bid = _safe_applescript_str(bid)
+                result = subprocess.run(
+                    ["osascript", "-e",
+                     f'tell application "System Events" to get name of first application process whose bundle identifier is "{safe_bid}"'],
+                    capture_output=True, text=True, timeout=5, check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    info["name"] = result.stdout.strip()
+            except Exception:
+                pass
+            return info
+        except Exception:
+            return {"bundle_id": "unknown"}
+
+    # -- element operations -------------------------------------------------
+
+    def inspect(self, max_elements: int = 200) -> list[dict]:
+        self._invalidate_refs()
+        source = self._driver.page_source
+        elements = parse_ui_tree(source, max_elements=max_elements)
+        # Bind refs by document-order index
+        try:
+            all_web_els = self._driver.find_elements(AppiumBy.XPATH, "//*")
+            for info in elements:
+                if 0 <= info.doc_order_index < len(all_web_els):
+                    self._store_ref(info.element_id, all_web_els[info.doc_order_index])
+        except Exception:
+            pass
+        return [e.to_dict() for e in elements]
+
+    def find(self, value: str, strategy: str = "accessibility_id", timeout: int = 5) -> tuple[str, list[dict]]:
+        """Returns (match_status, elements)."""
+        locator = _resolve_locator(strategy, value)
+        try:
+            WebDriverWait(self._driver, timeout).until(EC.presence_of_element_located(locator))
+        except Exception:
+            return "no_match", []
+
+        web_els = self._driver.find_elements(*locator)
+        if not web_els:
+            return "no_match", []
+
+        self._snapshot_generation += 1
+        result = []
+        for i, wel in enumerate(web_els):
+            eid = f"e{i}"
+            self._store_ref(eid, wel)
+            loc = wel.location
+            sz = wel.size
+            el_name = ""
+            el_label = ""
+            try:
+                el_name = wel.get_attribute("name") or ""
+                el_label = wel.get_attribute("label") or ""
+            except Exception:
+                pass
+            result.append(ElementInfo(
+                element_id=eid,
+                role=getattr(wel, "tag_name", "").replace("XCUIElementType", ""),
+                name=el_name or None,
+                label=el_label or None,
+                enabled=True,
+                frame={"x": loc.get("x", 0), "y": loc.get("y", 0),
+                       "width": sz.get("width", 0), "height": sz.get("height", 0)},
+                locator_hint=f"{strategy}:{value}",
+            ).to_dict())
+
+        status = "exactly_one_match" if len(result) == 1 else "multiple_matches"
+        return status, result
+
+    def click(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
+        el, err = self._resolve_ref(ref, strategy, timeout)
+        if err:
+            return {"error_code": err}
+        try:
+            ActionChains(self._driver).move_to_element(el).click().perform()
+        except Exception:
+            try:
+                el.click()
+            except Exception as exc:
+                return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        time.sleep(1)
+        self._invalidate_refs()
+        return {}
+
+    def right_click(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
+        el, err = self._resolve_ref(ref, strategy, timeout)
+        if err:
+            return {"error_code": err}
+        try:
+            ActionChains(self._driver).context_click(el).perform()
+        except Exception as exc:
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        time.sleep(1)
+        self._invalidate_refs()
+        return {}
+
+    def double_click(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
+        el, err = self._resolve_ref(ref, strategy, timeout)
+        if err:
+            return {"error_code": err}
+        try:
+            loc = el.location
+            sz = el.size
+            x = loc["x"] + sz["width"] / 2
+            y = loc["y"] + sz["height"] / 2
+            self._driver.tap([(x, y)])
+            time.sleep(0.1)
+            self._driver.tap([(x, y)])
+        except Exception as exc:
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        time.sleep(1)
+        self._invalidate_refs()
+        return {}
+
+    def hover(self, ref: str, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
+        el, err = self._resolve_ref(ref, strategy)
+        if err:
+            return {"error_code": err}
+        try:
+            ActionChains(self._driver).move_to_element(el).perform()
+            if duration > 0:
+                time.sleep(duration)
+        except Exception as exc:
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        return {}
+
+    def type_text(self, ref: str, text: str, strategy: str = "accessibility_id") -> dict:
+        el, err = self._resolve_ref(ref, strategy)
+        if err:
+            return {"error_code": err}
+        try:
+            el.click()
+            el.clear()
+            try:
+                el.send_keys(text)
+            except Exception:
+                # Fallback to macos: keys only when send_keys fails (#9)
+                self._driver.execute_script("macos: keys", {"keys": list(text)})
+        except Exception as exc:
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        # Verify the typed value
+        result = {"expected": text}
+        try:
+            actual = el.get_attribute("value")
+            if actual is None:
+                actual = el.text or ""
+            result["typed_value"] = actual
+            result["verified"] = (actual == text)
+        except Exception:
+            result["verified"] = None  # verification not possible
+        self._invalidate_refs()
+        return result
+
+    def scroll(self, ref: str, direction: str = "down", strategy: str = "accessibility_id") -> dict:
+        el, err = self._resolve_ref(ref, strategy)
+        if err:
+            return {"error_code": err}
+        try:
+            self._driver.execute_script("mobile: scroll", {"direction": direction, "element": el})
+        except Exception as exc:
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        self._invalidate_refs()
+        return {}
+
+    def drag(self, source_ref: str, target_ref: str, strategy: str = "accessibility_id") -> dict:
+        src, err1 = self._resolve_ref(source_ref, strategy)
+        tgt, err2 = self._resolve_ref(target_ref, strategy)
+        if err1:
+            return {"error_code": err1, "detail": f"source: {source_ref}"}
+        if err2:
+            return {"error_code": err2, "detail": f"target: {target_ref}"}
+        try:
+            ActionChains(self._driver).drag_and_drop(src, tgt).perform()
+        except Exception as exc:
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+        self._invalidate_refs()
+        return {}
+
+    # -- input operations ---------------------------------------------------
+
+    def input_key(self, key: str) -> dict:
+        key_mapping = {
+            "return": "\n", "enter": "\n", "space": " ", "tab": "\t",
+            "escape": "\x1b", "backspace": "\x08", "delete": "\x7f",
+        }
+        mapped = key_mapping.get(key.lower(), key)
+        try:
+            self._driver.execute_script("macos: keys", {"keys": [mapped]})
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        return {}
+
+    def input_hotkey(self, combo: str) -> dict:
+        key_mapping = {
+            "return": "\n", "enter": "\n", "space": " ", "tab": "\t",
+            "escape": "\x1b", "backspace": "\x08", "delete": "\x7f",
+        }
+        parts = combo.lower().split("+")
+        modifiers = parts[:-1]
+        actual = parts[-1]
+        flags = 0
+        for mod in modifiers:
+            if mod in ("command", "cmd"):
+                flags |= 1 << 4
+            elif mod == "shift":
+                flags |= 1 << 1
+            elif mod in ("control", "ctrl"):
+                flags |= 1 << 2
+            elif mod in ("option", "alt"):
+                flags |= 1 << 3
+            elif mod in ("fn", "function"):
+                flags |= 1 << 5
+        mapped = key_mapping.get(actual, actual)
+        try:
+            time.sleep(0.5)
+            self._driver.execute_script("macos: keys", {"keys": [{"key": mapped, "modifierFlags": flags}]})
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        return {}
+
+    def input_text(self, text: str) -> dict:
+        try:
+            time.sleep(0.5)
+            self._driver.execute_script("macos: keys", {"keys": list(text)})
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        return {}
+
+    # -- capture ------------------------------------------------------------
+
+    def screenshot(self, path: str) -> dict:
+        try:
+            png = self._driver.get_screenshot_as_png()
+            with open(path, "wb") as f:
+                f.write(png)
+            return {"path": path, "size_bytes": len(png)}
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+
+    def ui_tree(self) -> str:
+        source = self._driver.page_source
+        return simplify_page_source(source)
+
+    # -- window -------------------------------------------------------------
+
+    def window_current(self) -> dict:
+        """Return info about the actual frontmost window."""
+        _SEP = "\x1f"  # ASCII Unit Separator — safe delimiter
+        try:
+            script = ('tell application "System Events"\n'
+                      '  set fp to first application process whose frontmost is true\n'
+                      '  set appName to name of fp\n'
+                      '  set appBid to bundle identifier of fp\n'
+                      '  set fw to front window of fp\n'
+                      '  set winName to name of fw\n'
+                      '  set winPos to position of fw\n'
+                      '  set winSz to size of fw\n'
+                      '  set sep to ASCII character 31\n'
+                      '  return appName & sep & appBid & sep & winName & sep & (item 1 of winPos) & sep & (item 2 of winPos) & sep & (item 1 of winSz) & sep & (item 2 of winSz)\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0 and _SEP in result.stdout.strip():
+                parts = result.stdout.strip().split(_SEP)
+                if len(parts) >= 7:
+                    return {
+                        "app_name": parts[0],
+                        "app_bundle_id": parts[1],
+                        "title": parts[2],
+                        "x": int(parts[3]),
+                        "y": int(parts[4]),
+                        "width": int(parts[5]),
+                        "height": int(parts[6]),
+                    }
+        except Exception:
+            pass
+        # Fallback: managed app window via driver
+        try:
+            size = self._driver.get_window_size()
+            title = None
+            bid = self._managed_bundle_id()
+            try:
+                safe_bid = _safe_applescript_str(bid)
+                script = ('tell application "System Events"\n'
+                          f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
+                          '  get name of first window of ap\n'
+                          'end tell')
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True, text=True, timeout=5, check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    title = result.stdout.strip()
+            except Exception:
+                pass
+            info = {"width": size.get("width", 0), "height": size.get("height", 0)}
+            if title:
+                info["title"] = title
+            return info
+        except Exception:
+            return {}
+
+    def window_list(self) -> list[dict]:
+        """List windows of the managed app using AppleScript."""
+        try:
+            bid = self._managed_bundle_id()
+            if not bid:
+                return []
+            safe_bid = _safe_applescript_str(bid)
+            script = ('tell application "System Events"\n'
+                      f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
+                      '  get name of every window of ap\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+            names = [n.strip() for n in result.stdout.strip().split(", ")]
+            windows = []
+            for i, name in enumerate(names):
+                windows.append({"index": i, "title": name})
+            return windows
+        except Exception:
+            return []
+
+    def window_focus(self, index: int) -> dict:
+        """Focus a window by index using AppleScript."""
+        try:
+            bid = self._managed_bundle_id()
+            if not bid:
+                return {"error_code": ErrorCode.WINDOW_NOT_FOUND, "detail": "No managed bundle ID"}
+            # First, get the window count to validate index
+            windows = self.window_list()
+            if index < 0 or index >= len(windows):
+                max_idx = len(windows) - 1 if windows else 0
+                return {"error_code": ErrorCode.WINDOW_NOT_FOUND,
+                        "detail": f"Window index {index} out of range (0-{max_idx})"}
+            # AppleScript uses 1-based indexing
+            safe_bid = _safe_applescript_str(bid)
+            script = ('tell application "System Events"\n'
+                      f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
+                      f'  perform action "AXRaise" of window {index + 1} of ap\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 0:
+                return {"error_code": ErrorCode.WINDOW_NOT_FOUND,
+                        "detail": result.stderr.strip() or "Failed to focus window"}
+            self._invalidate_refs()
+            return {"focused": index, "title": windows[index].get("title", "")}
+        except Exception as exc:
+            return {"error_code": ErrorCode.WINDOW_NOT_FOUND, "detail": str(exc)}
+
+    # -- wait ---------------------------------------------------------------
+
+    def wait_element(self, value: str, strategy: str = "accessibility_id", timeout: int = 10) -> bool:
+        locator = _resolve_locator(strategy, value)
+        try:
+            WebDriverWait(self._driver, timeout).until(EC.presence_of_element_located(locator))
+            return True
+        except Exception:
+            return False
+
+    def wait_window(self, title: str, timeout: float = 10) -> bool:
+        """Poll for a window with the given title to appear."""
+        bid = self._managed_bundle_id()
+        if not bid:
+            return False
+        safe_bid = _safe_applescript_str(bid)
+        script = ('tell application "System Events"\n'
+                  f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
+                  '  get name of every window of ap\n'
+                  'end tell')
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True, text=True, timeout=5, check=False,
+                )
+                if result.returncode == 0:
+                    names = [n.strip() for n in result.stdout.strip().split(", ")]
+                    if any(title.lower() in n.lower() for n in names):
+                        return True
+            except Exception:
+                pass
+            time.sleep(1)
+        return False
+
+    def wait_app(self, bundle_id: str, timeout: float = 10) -> bool:
+        """Poll for an application with the given bundle ID to appear."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                safe_bid = _safe_applescript_str(bundle_id)
+                result = subprocess.run(
+                    ["osascript", "-e",
+                     f'tell application "System Events" to get bundle identifier of every application process whose bundle identifier is "{safe_bid}"'],
+                    capture_output=True, text=True, timeout=5, check=False,
+                )
+                if result.returncode == 0 and bundle_id in result.stdout:
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+        return False
+
+    # -- doctor helpers -----------------------------------------------------
+
+    def check_server(self) -> tuple[bool, str]:
+        import httpx
+        try:
+            r = httpx.get(f"{self._server_url}/status", timeout=5)
+            return r.status_code == 200, f"Appium server at {self._server_url}"
+        except Exception as exc:
+            return False, str(exc)
+
+
+class _backend_error(Exception):
+    pass
