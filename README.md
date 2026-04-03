@@ -84,6 +84,13 @@ mac doctor
 | `screenshot` | Take a screenshot |
 | `doctor` | Check environment and dependencies |
 
+
+## CI
+
+GitHub Actions runs the repository test suite from `.github/workflows/ci.yml`.
+The CI test command is `uv run pytest tests/ --junitxml=test-results/junit.xml`.
+CI uploads `test-results/junit.xml` and any generated `artifacts/` directory as workflow artifacts.
+
 ## Development
 
 ```bash
