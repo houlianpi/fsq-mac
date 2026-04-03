@@ -113,6 +113,17 @@ async def api_handler(request: Request) -> JSONResponse:
     body = await _body(request)
     allow_dangerous = body.get("allow_dangerous", False)
 
+    # Per-request verbosity from client
+    verbosity = request.headers.get("x-verbosity", "")
+    if verbosity == "debug":
+        logging.getLogger("mac-cli.daemon").setLevel(logging.DEBUG)
+        logging.getLogger("mac-cli.adapter").setLevel(logging.DEBUG)
+    elif verbosity == "verbose":
+        logging.getLogger("mac-cli.daemon").setLevel(logging.INFO)
+        logging.getLogger("mac-cli.adapter").setLevel(logging.INFO)
+
+    logger.debug("→ %s %s", command, body)
+
     # Safety check
     blocked = check_safety(command, allow_dangerous)
     if blocked:

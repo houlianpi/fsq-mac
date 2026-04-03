@@ -240,6 +240,10 @@ class AppiumMac2Adapter:
         # Snapshot: maps element_id -> WebElement for the current UI context
         self._element_refs: dict[str, Any] = {}
         self._snapshot_generation: int = 0
+        # Configurable delays
+        self._delay_post_action: float = config.get("delay_post_action", 1.0)
+        self._delay_pre_input: float = config.get("delay_pre_input", 0.5)
+        self._delay_double_click_gap: float = config.get("delay_double_click_gap", 0.1)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -357,7 +361,7 @@ class AppiumMac2Adapter:
 
     def app_activate(self, bundle_id: str) -> dict:
         if not self._driver or not self.connected:
-            raise _backend_error("No active session")
+            return {"error_code": ErrorCode.BACKEND_UNAVAILABLE, "detail": "No active session"}
         try:
             self._driver.activate_app(bundle_id)
         except Exception:
@@ -369,7 +373,7 @@ class AppiumMac2Adapter:
                 capture_output=True, text=True, timeout=10, check=False,
             )
         self._invalidate_refs()
-        time.sleep(1)
+        time.sleep(self._delay_post_action)
         # Return info about the activated app, not just the managed session's app
         info = {"bundle_id": bundle_id}
         try:
@@ -387,7 +391,7 @@ class AppiumMac2Adapter:
 
     def app_terminate(self, bundle_id: str) -> dict:
         if not self._driver or not self.connected:
-            raise _backend_error("No active session")
+            return {"error_code": ErrorCode.BACKEND_UNAVAILABLE, "detail": "No active session"}
         try:
             self._driver.terminate_app(bundle_id)
         except Exception:
@@ -547,7 +551,7 @@ class AppiumMac2Adapter:
                 el.click()
             except Exception as exc:
                 return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
-        time.sleep(1)
+        time.sleep(self._delay_post_action)
         self._invalidate_refs()
         return {}
 
@@ -559,7 +563,7 @@ class AppiumMac2Adapter:
             ActionChains(self._driver).context_click(el).perform()
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
-        time.sleep(1)
+        time.sleep(self._delay_post_action)
         self._invalidate_refs()
         return {}
 
@@ -573,11 +577,11 @@ class AppiumMac2Adapter:
             x = loc["x"] + sz["width"] / 2
             y = loc["y"] + sz["height"] / 2
             self._driver.tap([(x, y)])
-            time.sleep(0.1)
+            time.sleep(self._delay_double_click_gap)
             self._driver.tap([(x, y)])
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
-        time.sleep(1)
+        time.sleep(self._delay_post_action)
         self._invalidate_refs()
         return {}
 
@@ -681,7 +685,7 @@ class AppiumMac2Adapter:
                 flags |= 1 << 5
         mapped = key_mapping.get(actual, actual)
         try:
-            time.sleep(0.5)
+            time.sleep(self._delay_pre_input)
             self._driver.execute_script("macos: keys", {"keys": [{"key": mapped, "modifierFlags": flags}]})
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
@@ -689,7 +693,7 @@ class AppiumMac2Adapter:
 
     def input_text(self, text: str) -> dict:
         try:
-            time.sleep(0.5)
+            time.sleep(self._delay_pre_input)
             self._driver.execute_script("macos: keys", {"keys": list(text)})
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
@@ -925,6 +929,3 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return False, str(exc)
 
-
-class _backend_error(Exception):
-    pass

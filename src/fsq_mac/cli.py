@@ -9,6 +9,7 @@ Usage:  mac <domain> <action> [args] [options]
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
 from fsq_mac import __version__
@@ -22,6 +23,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Agent-first macOS automation CLI",
     )
     p.add_argument("--version", action="version", version=f"fsq-mac {__version__}")
+    p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    p.add_argument("--debug", action="store_true", help="Debug output")
     p.add_argument("--session", default=None, help="Session ID (default: most recent)")
     p.add_argument("--strategy", default="accessibility_id",
                    help="Element locator strategy (default: accessibility_id)")
@@ -126,7 +129,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run(args: argparse.Namespace) -> dict:
     """Translate parsed args into a daemon API call."""
-    client = DaemonClient(timeout=max(args.timeout / 1000 + 10, 30))
+    verbosity = "debug" if args.debug else ("verbose" if args.verbose else None)
+    client = DaemonClient(timeout=max(args.timeout / 1000 + 10, 30), verbosity=verbosity)
 
     domain = args.domain
     action = getattr(args, "action", None) or "all"
@@ -208,6 +212,11 @@ def main(argv: list[str] | None = None) -> None:
     # doctor without action = run all checks
     if args.domain == "doctor" and not getattr(args, "action", None):
         args.action = "all"
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s %(message)s")
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
 
     result = _run(args)
     print(output(result, pretty=args.pretty))

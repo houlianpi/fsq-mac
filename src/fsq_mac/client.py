@@ -26,9 +26,11 @@ LOCK_FILE = STATE_DIR / "daemon.lock"
 class DaemonClient:
     """Lightweight HTTP client that auto-starts the daemon if needed."""
 
-    def __init__(self, timeout: float = 30.0):
+    def __init__(self, timeout: float = 30.0, verbosity: str | None = None):
         self._timeout = timeout
         self._base_url: str | None = None
+        self._client: httpx.Client | None = None
+        self._verbosity = verbosity
 
     # -- daemon lifecycle ---------------------------------------------------
 
@@ -104,12 +106,20 @@ class DaemonClient:
 
     # -- API call -----------------------------------------------------------
 
+    def _get_client(self) -> httpx.Client:
+        if self._client is None:
+            headers = {}
+            if self._verbosity:
+                headers["X-Verbosity"] = self._verbosity
+            self._client = httpx.Client(timeout=self._timeout, headers=headers)
+        return self._client
+
     def call(self, domain: str, action: str, **params) -> dict:
         """Send a command to the daemon and return the parsed JSON response."""
         base = self._ensure_daemon()
         url = f"{base}/api/{domain}/{action}"
         try:
-            r = httpx.post(url, json=params, timeout=self._timeout)
+            r = self._get_client().post(url, json=params, timeout=self._timeout)
             if r.status_code >= 500:
                 return {
                     "ok": False,
@@ -124,10 +134,11 @@ class DaemonClient:
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
             # Daemon may have died — try restart once
             self._base_url = None
+            self._client = None
             try:
                 base = self._ensure_daemon()
                 url = f"{base}/api/{domain}/{action}"
-                r = httpx.post(url, json=params, timeout=self._timeout)
+                r = self._get_client().post(url, json=params, timeout=self._timeout)
                 if r.status_code >= 500:
                     return {
                         "ok": False,

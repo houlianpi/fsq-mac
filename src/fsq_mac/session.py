@@ -9,8 +9,7 @@ import json
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-
-from fsq_mac.adapters.appium_mac2 import AppiumMac2Adapter
+from typing import Any, Callable
 
 STATE_DIR = Path.home() / ".fsq-mac" / "sessions"
 
@@ -34,10 +33,11 @@ class SessionState:
 class SessionManager:
     """Manages multiple automation sessions with local file persistence."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, adapter_factory: Callable[[dict], Any] | None = None):
         self._config = config
+        self._adapter_factory = adapter_factory
         self._sessions: dict[str, SessionState] = {}
-        self._adapters: dict[str, AppiumMac2Adapter] = {}
+        self._adapters: dict[str, Any] = {}
         self._active_session_id: str | None = None
         self._next_id: int = 0
         STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -85,7 +85,11 @@ class SessionManager:
             created_at=self._now(),
             updated_at=self._now(),
         )
-        adapter = AppiumMac2Adapter(self._config)
+        if self._adapter_factory:
+            adapter = self._adapter_factory(self._config)
+        else:
+            from fsq_mac.adapters.appium_mac2 import AppiumMac2Adapter
+            adapter = AppiumMac2Adapter(self._config)
         self._sessions[sid] = state
         self._adapters[sid] = adapter
         self._active_session_id = sid
@@ -114,7 +118,7 @@ class SessionManager:
             self._active_session_id = next(iter(self._sessions), None)
         return sid
 
-    def adapter(self, sid: str | None = None) -> AppiumMac2Adapter | None:
+    def adapter(self, sid: str | None = None) -> Any:
         sid = sid or self._active_session_id
         return self._adapters.get(sid) if sid else None
 
