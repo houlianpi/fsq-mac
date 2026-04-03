@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -37,7 +37,7 @@ def adapter(mock_config, mock_driver):
 def test_screenshot_element_ok(adapter, tmp_path):
     mock_el = MagicMock()
     mock_el.location = {"x": 100, "y": 200}
-    mock_el.screenshot_as_png.return_value = b"\x89PNG_fake_data"
+    type(mock_el).screenshot_as_png = PropertyMock(return_value=b"\x89PNG_fake_data")
     adapter._store_ref("e0", mock_el)
 
     path = str(tmp_path / "el.png")

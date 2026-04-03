@@ -724,7 +724,7 @@ class AppiumMac2Adapter:
         if err:
             return {"error_code": err, "detail": f"Element '{ref}' not found"}
         try:
-            png = el.screenshot_as_png()
+            png = el.screenshot_as_png
             with open(path, "wb") as f:
                 f.write(png)
             return {"path": path, "size_bytes": len(png)}

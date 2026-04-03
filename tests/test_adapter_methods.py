@@ -364,7 +364,7 @@ class TestScreenshotElement:
     def test_screenshot_element_success(self, adapter_with_driver, tmp_path):
         mock_el = MagicMock()
         mock_el.location = {"x": 0, "y": 0}
-        mock_el.screenshot_as_png.return_value = b"\x89PNG_DATA"
+        type(mock_el).screenshot_as_png = PropertyMock(return_value=b"\x89PNG_DATA")
         adapter_with_driver._store_ref("e0", mock_el)
         path = str(tmp_path / "el.png")
         result = adapter_with_driver.screenshot_element("e0", path)
@@ -381,7 +381,7 @@ class TestScreenshotElement:
     def test_screenshot_element_error(self, adapter_with_driver, tmp_path):
         mock_el = MagicMock()
         mock_el.location = {"x": 0, "y": 0}
-        mock_el.screenshot_as_png.side_effect = Exception("fail")
+        type(mock_el).screenshot_as_png = PropertyMock(side_effect=Exception("fail"))
         adapter_with_driver._store_ref("e0", mock_el)
         result = adapter_with_driver.screenshot_element("e0", str(tmp_path / "el.png"))
         assert result["error_code"] == ErrorCode.INTERNAL_ERROR
