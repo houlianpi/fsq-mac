@@ -72,12 +72,16 @@ def _build_core() -> AutomationCore:
 
 # Global core instance — created once at startup
 _core: AutomationCore | None = None
+_core_error: str | None = None
 
 
-def _get_core() -> AutomationCore:
-    global _core
-    if _core is None:
-        _core = _build_core()
+def _get_core() -> AutomationCore | None:
+    global _core, _core_error
+    if _core is None and _core_error is None:
+        try:
+            _core = _build_core()
+        except ValueError as exc:
+            _core_error = str(exc)
     return _core
 
 
@@ -131,6 +135,10 @@ async def api_handler(request: Request) -> JSONResponse:
         return JSONResponse(blocked.to_dict())
 
     core = _get_core()
+    if core is None:
+        resp = error_response(command, ErrorCode.INVALID_ARGUMENT,
+                              _core_error or "Backend initialization failed")
+        return JSONResponse(resp.to_dict())
     opts = _opts(body)
     sid = opts["sid"]
 

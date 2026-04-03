@@ -16,8 +16,17 @@ def register_adapter(name: str, factory: Callable[[dict], Any]) -> None:
 
 
 def get_adapter_factory(name: str) -> Callable[[dict], Any]:
-    """Look up an adapter factory by name. Raises KeyError if unknown."""
-    return _REGISTRY[name]
+    """Look up an adapter factory by name.
+
+    Raises ValueError with a descriptive message if the backend is unknown.
+    """
+    try:
+        return _REGISTRY[name]
+    except KeyError:
+        available = ", ".join(sorted(_REGISTRY)) or "(none)"
+        raise ValueError(
+            f"Unknown backend {name!r}. Available: {available}"
+        ) from None
 
 
 def available_backends() -> list[str]:
