@@ -49,6 +49,12 @@ _ALL_COMMANDS = [
     ("input", "click-at"),
     # menu
     ("menu", "click"),
+    # trace
+    ("trace", "start"),
+    ("trace", "stop"),
+    ("trace", "status"),
+    ("trace", "replay"),
+    ("trace", "viewer"),
     # capture
     ("capture", "screenshot"),
     ("capture", "ui-tree"),
@@ -105,6 +111,11 @@ def test_route_is_dispatched(domain, action):
     core.input_text.return_value = resp
     core.input_click_at.return_value = resp
     core.menu_click.return_value = resp
+    core.trace_start.return_value = resp
+    core.trace_stop.return_value = resp
+    core.trace_status.return_value = resp
+    core.trace_replay.return_value = resp
+    core.trace_viewer.return_value = resp
     core.capture_screenshot.return_value = resp
     core.capture_ui_tree.return_value = resp
     core.window_current.return_value = resp
@@ -131,6 +142,7 @@ def test_route_is_dispatched(domain, action):
         "name": "Submit",
         "label": "Search",
         "xpath": "//XCUIElementTypeButton[@name='Submit']",
+        "expected": "Ready",
         "timeout": 5000,
         "title": "Test",
         "index": 0,

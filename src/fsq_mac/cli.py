@@ -139,6 +139,18 @@ def _build_parser() -> argparse.ArgumentParser:
     menu_click = ma.add_parser("click", help="Click a menu path")
     menu_click.add_argument("path", help='Menu path (e.g. "File > Open")')
 
+    # -- trace --
+    trace = sub.add_parser("trace", help="Trace recording and replay")
+    ta = trace.add_subparsers(dest="action")
+    trace_start = ta.add_parser("start", help="Start recording a trace")
+    trace_start.add_argument("path", nargs="?", help="Trace output directory")
+    ta.add_parser("stop", help="Stop recording the active trace")
+    ta.add_parser("status", help="Show active trace status")
+    trace_replay = ta.add_parser("replay", help="Replay a saved trace")
+    trace_replay.add_argument("path", help="Trace directory or trace.json path")
+    trace_viewer = ta.add_parser("viewer", help="Generate static viewer for a trace")
+    trace_viewer.add_argument("path", help="Trace directory or trace.json path")
+
     # -- capture --
     cap = sub.add_parser("capture", help="Capture screen or UI tree")
     ca = cap.add_subparsers(dest="action")
@@ -235,6 +247,10 @@ def _run(args: argparse.Namespace) -> dict:
 
     elif domain == "menu":
         if action == "click":
+            params["path"] = args.path
+
+    elif domain == "trace":
+        if action in ("start", "replay", "viewer") and getattr(args, "path", None):
             params["path"] = args.path
 
     elif domain == "capture":

@@ -19,7 +19,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from fsq_mac.core import AutomationCore, check_safety
-from fsq_mac.models import ErrorCode, error_response
+from fsq_mac.models import ErrorCode, TraceArtifacts, error_response
 from fsq_mac.session import SessionManager
 
 logger = logging.getLogger("mac-cli.daemon")
@@ -67,7 +67,9 @@ def _build_core() -> AutomationCore:
     config = _load_config()
     backend = config.get("backend", "appium_mac2")
     sm = SessionManager(config, backend=backend)
-    return AutomationCore(sm)
+    core = AutomationCore(sm)
+    core.set_trace_replay_executor(lambda command, args: _execute_trace_step(core, command, args))
+    return core
 
 
 # Global core instance — created once at startup
@@ -110,6 +112,87 @@ def _locator_kwargs(body: dict) -> dict:
     }
 
 
+def _is_recordable_command(command: str) -> bool:
+    if command.startswith("trace."):
+        return False
+    if command.startswith("session."):
+        return False
+    return True
+
+
+def _execute_trace_step(core: AutomationCore, command: str, args: dict) -> dict:
+    if "." not in command:
+        return error_response(command, ErrorCode.INVALID_ARGUMENT, f"Invalid trace command: {command}").to_dict()
+    domain, action = command.split(".", 1)
+    response = _dispatch(core, domain, action, args, args.get("session") or args.get("session_id"))
+    return response.to_dict()
+
+
+def _capture_trace_artifacts(core: AutomationCore, step_index: int) -> TraceArtifacts:
+    artifacts = TraceArtifacts()
+    trace_path = core.active_trace_path()
+    if not trace_path or not hasattr(core, "trace_capture_adapter") or not hasattr(core, "trace_artifact_paths"):
+        return artifacts
+    try:
+        adapter, _, err = core.trace_capture_adapter()
+    except Exception:
+        return artifacts
+    if err or adapter is None:
+        return artifacts
+
+    paths = core.trace_artifact_paths(step_index)
+    if not paths:
+        return artifacts
+
+    try:
+        result = adapter.screenshot(paths["before_screenshot"])
+        if not result.get("error_code"):
+            artifacts.before_screenshot = result.get("path") or paths["before_screenshot"]
+    except Exception:
+        logger.exception("Failed to capture trace screenshot")
+
+    try:
+        tree = adapter.ui_tree()
+        Path(paths["before_tree"]).write_text(tree)
+        artifacts.before_tree = paths["before_tree"]
+    except Exception:
+        logger.exception("Failed to capture trace ui tree")
+
+    return artifacts
+
+
+def _capture_trace_artifacts_after(core: AutomationCore, step_index: int, artifacts: TraceArtifacts) -> TraceArtifacts:
+    trace_path = core.active_trace_path()
+    if not trace_path or not hasattr(core, "trace_capture_adapter") or not hasattr(core, "trace_artifact_paths"):
+        return artifacts
+    try:
+        adapter, _, err = core.trace_capture_adapter()
+    except Exception:
+        return artifacts
+    if err or adapter is None:
+        return artifacts
+
+    paths = core.trace_artifact_paths(step_index)
+    if not paths:
+        return artifacts
+
+    try:
+        result = adapter.screenshot(paths["after_screenshot"])
+        if not result.get("error_code"):
+            artifacts.after_screenshot = result.get("path") or paths["after_screenshot"]
+    except Exception:
+        logger.exception("Failed to capture trace screenshot")
+
+    try:
+        tree = adapter.ui_tree()
+        Path(paths["after_tree"]).write_text(tree)
+        artifacts.after_tree = paths["after_tree"]
+    except Exception:
+        logger.exception("Failed to capture trace ui tree")
+
+    return artifacts
+
+
 # ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
@@ -150,10 +233,28 @@ async def api_handler(request: Request) -> JSONResponse:
     opts = _opts(body)
     sid = opts["sid"]
 
+    artifacts = TraceArtifacts()
+    step_index = None
+    if _is_recordable_command(command) and core.active_trace_id():
+        if hasattr(core, "next_trace_step_index"):
+            step_index = core.next_trace_step_index()
+        if step_index is not None:
+            artifacts = _capture_trace_artifacts(core, step_index)
+
     try:
         resp = _dispatch(core, domain, action, body, sid)
     except Exception as exc:
         resp = error_response(command, ErrorCode.INTERNAL_ERROR, str(exc))
+
+    try:
+        if _is_recordable_command(command) and core.active_trace_id():
+            if step_index is None and hasattr(core, "next_trace_step_index"):
+                step_index = core.next_trace_step_index()
+            if step_index is not None:
+                artifacts = _capture_trace_artifacts_after(core, step_index, artifacts)
+            core.record_trace_step(command, body, resp.to_dict(), artifacts=artifacts)
+    except Exception:
+        logger.exception("Failed to record trace step for %s", command)
 
     return JSONResponse(resp.to_dict())
 
@@ -242,6 +343,19 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
     if domain == "menu":
         if action == "click":
             return core.menu_click(body.get("path", ""), sid)
+
+    # -- trace --
+    if domain == "trace":
+        if action == "start":
+            return core.trace_start(body.get("path"), sid)
+        if action == "stop":
+            return core.trace_stop(sid)
+        if action == "status":
+            return core.trace_status(sid)
+        if action == "replay":
+            return core.trace_replay(body.get("path", ""), sid)
+        if action == "viewer":
+            return core.trace_viewer(body.get("path", ""), sid)
 
     # -- capture --
     if domain == "capture":

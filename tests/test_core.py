@@ -312,6 +312,34 @@ class TestMenuOps:
         assert resp.ok is True
 
 
+class TestTraceOps:
+    def test_trace_start_stop_status(self, core_with_session, tmp_path):
+        core, _ = core_with_session
+        resp = core.trace_start(str(tmp_path / "trace-out"))
+        assert resp.ok is True
+        assert resp.data["active"] is True
+
+        status = core.trace_status()
+        assert status.ok is True
+        assert status.data["active"] is True
+
+        stopped = core.trace_stop()
+        assert stopped.ok is True
+        assert stopped.data["active"] is False
+
+    def test_trace_replay_missing_path_returns_error(self, core_with_session):
+        core, _ = core_with_session
+        resp = core.trace_replay("/tmp/does-not-exist")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.INVALID_ARGUMENT
+
+    def test_trace_replay_is_not_safe(self):
+        resp = check_safety("trace.replay", False)
+        assert resp is None
+        from fsq_mac.core import _SAFETY
+        assert _SAFETY["trace.replay"] != SafetyLevel.SAFE
+
+
 class TestCaptureOps:
     def test_screenshot(self, core_with_session):
         core, adapter = core_with_session

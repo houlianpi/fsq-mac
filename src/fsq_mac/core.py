@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
+from typing import Callable
 
 from fsq_mac.models import (
     ErrorCode, Response, ResponseMeta, SafetyLevel,
-    LocatorQuery, success_response, error_response,
+    LocatorQuery, TraceArtifacts, TraceStep, success_response, error_response,
 )
 from fsq_mac.session import SessionManager
+from fsq_mac.trace import TraceStore
 
 # ---------------------------------------------------------------------------
 # Safety classification
@@ -48,6 +51,11 @@ _SAFETY: dict[str, SafetyLevel] = {
     "assert.text": SafetyLevel.SAFE,
     "assert.value": SafetyLevel.SAFE,
     "menu.click": SafetyLevel.GUARDED,
+    "trace.start": SafetyLevel.SAFE,
+    "trace.stop": SafetyLevel.SAFE,
+    "trace.status": SafetyLevel.SAFE,
+    "trace.replay": SafetyLevel.GUARDED,
+    "trace.viewer": SafetyLevel.SAFE,
     "capture.screenshot": SafetyLevel.SAFE,
     "capture.ui-tree": SafetyLevel.SAFE,
     "wait.element": SafetyLevel.SAFE,
@@ -80,6 +88,11 @@ class AutomationCore:
 
     def __init__(self, session_mgr: SessionManager):
         self._sm = session_mgr
+        self._trace_root = Path.cwd() / "artifacts" / "traces"
+        self._trace_store = TraceStore(self._trace_root)
+        self._active_trace_id: str | None = None
+        self._active_trace_path: str | None = None
+        self._trace_replay_executor: Callable[[str, dict], dict] | None = None
 
     def _meta(self, start: float, sid: str | None = None) -> ResponseMeta:
         state = self._sm.get(sid)
@@ -112,6 +125,64 @@ class AutomationCore:
         xpath: str | None = None,
     ) -> LocatorQuery:
         return LocatorQuery(ref=ref, id=id, role=role, name=name, label=label, xpath=xpath)
+
+    def set_trace_replay_executor(self, executor: Callable[[str, dict], dict]) -> None:
+        self._trace_replay_executor = executor
+
+    def active_trace_id(self) -> str | None:
+        return self._active_trace_id
+
+    def active_trace_path(self) -> str | None:
+        return self._active_trace_path
+
+    def next_trace_step_index(self) -> int | None:
+        if not self._active_trace_path:
+            return None
+        run = self._trace_store.load_trace(self._active_trace_path)
+        return len(run.steps) + 1
+
+    def trace_artifact_paths(self, step_index: int) -> dict[str, str]:
+        if not self._active_trace_id:
+            return {}
+        return self._trace_store.step_artifact_paths(self._active_trace_id, step_index)
+
+    def trace_capture_adapter(self, sid: str | None = None):
+        return self._require_adapter("trace.capture", sid)
+
+    def _derive_locator_query(self, args: dict) -> tuple[dict, bool]:
+        locator = {key: args.get(key) for key in ("id", "role", "name", "label", "xpath") if args.get(key)}
+        ref = args.get("ref")
+        if locator:
+            return locator, True
+        if isinstance(ref, str) and ref.startswith("e") and ref[1:].isdigit():
+            return {}, False
+        return ({"ref": ref} if ref else {}), True
+
+    def record_trace_step(
+        self,
+        command: str,
+        args: dict,
+        result: dict,
+        artifacts: TraceArtifacts | dict | None = None,
+    ) -> bool:
+        if not self._active_trace_path:
+            return False
+        run = self._trace_store.load_trace(self._active_trace_path)
+        locator_query, replayable = self._derive_locator_query(args)
+        step = TraceStep(
+            index=len(run.steps) + 1,
+            command=command,
+            args=args,
+            locator_query=locator_query,
+            replayable=replayable,
+            started_at=result.get("meta", {}).get("timestamp", ""),
+            duration_ms=result.get("meta", {}).get("duration_ms", 0),
+            ok=result.get("ok", False),
+            error=result.get("error"),
+            artifacts=artifacts or TraceArtifacts(),
+        )
+        self._trace_store.append_step_at_path(self._active_trace_path, step)
+        return True
 
     # -- session ------------------------------------------------------------
 
@@ -425,6 +496,80 @@ class AutomationCore:
             return error_response("menu.click", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
         return success_response("menu.click", data=result or {}, session_id=active, meta=self._meta(t, active))
+
+    def trace_start(self, path: str | None = None, sid: str | None = None) -> Response:
+        t = time.time()
+        run = self._trace_store.start_trace(path)
+        self._active_trace_id = run.trace_id
+        self._active_trace_path = run.output_dir
+        return success_response("trace.start", data={
+            "path": run.output_dir,
+            "trace_id": run.trace_id,
+            "active": True,
+        }, session_id=sid, meta=self._meta(t, sid))
+
+    def trace_stop(self, sid: str | None = None) -> Response:
+        t = time.time()
+        if not self._active_trace_id:
+            return success_response("trace.stop", data={"active": False},
+                                    session_id=sid, meta=self._meta(t, sid))
+        run = self._trace_store.stop_trace_at_path(self._active_trace_path or str(self._trace_root / self._active_trace_id))
+        self._active_trace_id = None
+        self._active_trace_path = None
+        return success_response("trace.stop", data={
+            "active": False,
+            "trace_id": run.trace_id,
+            "path": run.output_dir,
+        }, session_id=sid, meta=self._meta(t, sid))
+
+    def trace_status(self, sid: str | None = None) -> Response:
+        t = time.time()
+        data = {"active": False}
+        if self._active_trace_id:
+            run = self._trace_store.load_trace(self._active_trace_path or str(self._trace_root / self._active_trace_id))
+            data = {
+                "active": True,
+                "trace_id": run.trace_id,
+                "path": run.output_dir,
+                "status": run.status,
+                "steps": len(run.steps),
+            }
+        return success_response("trace.status", data=data,
+                                session_id=sid, meta=self._meta(t, sid))
+
+    def trace_replay(self, path: str, sid: str | None = None) -> Response:
+        t = time.time()
+        trace_path = Path(path)
+        manifest_path = trace_path if trace_path.name == "trace.json" else trace_path / "trace.json"
+        if not manifest_path.exists():
+            return error_response("trace.replay", ErrorCode.INVALID_ARGUMENT,
+                                  f"Trace manifest not found: {path}",
+                                  session_id=sid, meta=self._meta(t, sid))
+        if self._trace_replay_executor is None:
+            return error_response("trace.replay", ErrorCode.INTERNAL_ERROR,
+                                  "Trace replay executor is not configured",
+                                  session_id=sid, meta=self._meta(t, sid))
+        result = self._trace_store.replay(str(manifest_path), self._trace_replay_executor)
+        if not result.get("ok", False):
+            error = result.get("error", {})
+            code_value = error.get("code", ErrorCode.INTERNAL_ERROR.value)
+            code = ErrorCode(code_value)
+            return error_response("trace.replay", code, error.get("message", "Replay failed"),
+                                  session_id=sid, meta=self._meta(t, sid))
+        return success_response("trace.replay", data=result,
+                                session_id=sid, meta=self._meta(t, sid))
+
+    def trace_viewer(self, path: str, sid: str | None = None) -> Response:
+        t = time.time()
+        trace_path = Path(path)
+        manifest_path = trace_path if trace_path.name == "trace.json" else trace_path / "trace.json"
+        if not manifest_path.exists():
+            return error_response("trace.viewer", ErrorCode.INVALID_ARGUMENT,
+                                  f"Trace manifest not found: {path}",
+                                  session_id=sid, meta=self._meta(t, sid))
+        viewer_path = self._trace_store.generate_viewer(str(manifest_path))
+        return success_response("trace.viewer", data={"path": viewer_path},
+                                session_id=sid, meta=self._meta(t, sid))
 
     # -- capture ------------------------------------------------------------
 

@@ -34,3 +34,6 @@ htmlcov/
 
 # uv
 uv.lock
+
+# Runtime artifacts
+artifacts/

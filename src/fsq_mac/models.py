@@ -30,6 +30,7 @@ class ErrorCode(str, Enum):
     ACTION_BLOCKED = "ACTION_BLOCKED"
     INVALID_ARGUMENT = "INVALID_ARGUMENT"
     ASSERTION_FAILED = "ASSERTION_FAILED"
+    TRACE_STEP_NOT_REPLAYABLE = "TRACE_STEP_NOT_REPLAYABLE"
     TYPE_VERIFICATION_FAILED = "TYPE_VERIFICATION_FAILED"
     TIMEOUT = "TIMEOUT"
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -226,3 +227,75 @@ class LocatorQuery:
             "xpath": self.xpath,
         }
         return {k: v for k, v in data.items() if v not in (None, "")}
+
+
+@dataclass
+class TraceArtifacts:
+    before_screenshot: str | None = None
+    after_screenshot: str | None = None
+    before_tree: str | None = None
+    after_tree: str | None = None
+
+    def to_dict(self) -> dict:
+        data = {
+            "before_screenshot": self.before_screenshot,
+            "after_screenshot": self.after_screenshot,
+            "before_tree": self.before_tree,
+            "after_tree": self.after_tree,
+        }
+        return {k: v for k, v in data.items() if v not in (None, "")}
+
+
+@dataclass
+class TraceStep:
+    index: int
+    command: str
+    args: dict[str, Any] = field(default_factory=dict)
+    locator_query: dict[str, Any] = field(default_factory=dict)
+    replayable: bool = True
+    started_at: str = ""
+    duration_ms: int = 0
+    ok: bool = True
+    error: dict[str, Any] | None = None
+    artifacts: TraceArtifacts | dict[str, Any] = field(default_factory=TraceArtifacts)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.artifacts, dict):
+            self.artifacts = TraceArtifacts(**self.artifacts)
+
+    def to_dict(self) -> dict:
+        data = {
+            "index": self.index,
+            "command": self.command,
+            "args": self.args,
+            "locator_query": self.locator_query,
+            "replayable": self.replayable,
+            "started_at": self.started_at,
+            "duration_ms": self.duration_ms,
+            "ok": self.ok,
+            "error": self.error,
+            "artifacts": self.artifacts.to_dict(),
+        }
+        return data
+
+
+@dataclass
+class TraceRun:
+    trace_id: str
+    output_dir: str
+    created_at: str = ""
+    backend: str = "appium_mac2"
+    session_id: str | None = None
+    status: str = "recording"
+    steps: list[TraceStep] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "trace_id": self.trace_id,
+            "output_dir": self.output_dir,
+            "created_at": self.created_at,
+            "backend": self.backend,
+            "session_id": self.session_id,
+            "status": self.status,
+            "steps": [step.to_dict() for step in self.steps],
+        }

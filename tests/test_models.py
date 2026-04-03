@@ -9,7 +9,8 @@ import json
 
 from fsq_mac.models import (
     ErrorCode, SafetyLevel, CLIError, ResponseMeta, Response,
-    ElementInfo, LocatorQuery, success_response, error_response, _RETRYABLE,
+    ElementInfo, LocatorQuery, TraceArtifacts, TraceRun, TraceStep,
+    success_response, error_response, _RETRYABLE,
 )
 
 
@@ -28,6 +29,7 @@ class TestErrorCode:
         assert ErrorCode.SESSION_NOT_FOUND.value == "SESSION_NOT_FOUND"
         assert ErrorCode.PERMISSION_DENIED.value == "PERMISSION_DENIED"
         assert ErrorCode.ASSERTION_FAILED.value == "ASSERTION_FAILED"
+        assert ErrorCode.TRACE_STEP_NOT_REPLAYABLE.value == "TRACE_STEP_NOT_REPLAYABLE"
 
 
 class TestCLIError:
@@ -130,6 +132,20 @@ class TestLocatorQuery:
     def test_to_dict_omits_empty_fields(self):
         query = LocatorQuery(ref="e0", label="", xpath=None)
         assert query.to_dict() == {"ref": "e0"}
+
+
+class TestTraceModels:
+    def test_trace_run_to_dict_contains_steps(self):
+        step = TraceStep(index=1, command="element.click", args={"role": "AXButton"})
+        run = TraceRun(trace_id="t1", output_dir="/tmp/t1", steps=[step])
+        data = run.to_dict()
+        assert data["trace_id"] == "t1"
+        assert data["output_dir"] == "/tmp/t1"
+        assert data["steps"][0]["command"] == "element.click"
+
+    def test_trace_artifacts_to_dict_omits_empty_fields(self):
+        artifacts = TraceArtifacts(before_screenshot="before.png")
+        assert artifacts.to_dict() == {"before_screenshot": "before.png"}
 
 
 class TestHelpers:

@@ -182,6 +182,39 @@ class TestParserDomains:
         assert args.action == "click"
         assert args.path == "File > Open"
 
+    def test_trace_start(self):
+        parser = _build_parser()
+        args = parser.parse_args(["trace", "start"])
+        assert args.domain == "trace"
+        assert args.action == "start"
+
+    def test_trace_start_with_output_dir(self):
+        parser = _build_parser()
+        args = parser.parse_args(["trace", "start", "artifacts/traces/demo"])
+        assert args.path == "artifacts/traces/demo"
+
+    def test_trace_stop(self):
+        parser = _build_parser()
+        args = parser.parse_args(["trace", "stop"])
+        assert args.action == "stop"
+
+    def test_trace_status(self):
+        parser = _build_parser()
+        args = parser.parse_args(["trace", "status"])
+        assert args.action == "status"
+
+    def test_trace_replay(self):
+        parser = _build_parser()
+        args = parser.parse_args(["trace", "replay", "artifacts/traces/t1"])
+        assert args.action == "replay"
+        assert args.path == "artifacts/traces/t1"
+
+    def test_trace_viewer(self):
+        parser = _build_parser()
+        args = parser.parse_args(["trace", "viewer", "artifacts/traces/t1"])
+        assert args.action == "viewer"
+        assert args.path == "artifacts/traces/t1"
+
 
 class TestRun:
     def _make_args(self, argv):
@@ -331,6 +364,49 @@ class TestRun:
         call_args = mock_instance.call.call_args
         assert call_args[0] == ("menu", "click")
         assert call_args[1]["path"] == "File > Open"
+
+    def test_run_maps_trace_start(self):
+        args = self._make_args(["trace", "start", "artifacts/traces/demo"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("trace", "start")
+        assert call_args[1]["path"] == "artifacts/traces/demo"
+
+    def test_run_maps_trace_stop(self):
+        args = self._make_args(["trace", "stop"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("trace", "stop")
+
+    def test_run_maps_trace_replay(self):
+        args = self._make_args(["trace", "replay", "artifacts/traces/t1"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("trace", "replay")
+        assert call_args[1]["path"] == "artifacts/traces/t1"
+
+    def test_run_maps_trace_viewer(self):
+        args = self._make_args(["trace", "viewer", "artifacts/traces/t1"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("trace", "viewer")
+        assert call_args[1]["path"] == "artifacts/traces/t1"
 
     def test_run_maps_input_text(self):
         args = self._make_args(["input", "text", "hello"])
