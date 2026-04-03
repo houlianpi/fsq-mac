@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from fsq_mac import __version__
 from fsq_mac.client import DaemonClient
 from fsq_mac.formatters import output
 
@@ -20,6 +21,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="mac",
         description="Agent-first macOS automation CLI",
     )
+    p.add_argument("--version", action="version", version=f"fsq-mac {__version__}")
     p.add_argument("--session", default=None, help="Session ID (default: most recent)")
     p.add_argument("--strategy", default="accessibility_id",
                    help="Element locator strategy (default: accessibility_id)")
@@ -98,6 +100,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ca = cap.add_subparsers(dest="action")
     ss = ca.add_parser("screenshot", help="Take a screenshot")
     ss.add_argument("path", nargs="?", default="./screenshot.png", help="Output file path")
+    ss_group = ss.add_mutually_exclusive_group()
+    ss_group.add_argument("--element", metavar="REF", help="Screenshot a specific element (e.g. e0)")
+    ss_group.add_argument("--rect", metavar="x,y,w,h", help="Screenshot a region")
     ca.add_parser("ui-tree", help="Get UI element tree")
 
     # -- wait --
@@ -163,6 +168,10 @@ def _run(args: argparse.Namespace) -> dict:
     elif domain == "capture":
         if action == "screenshot":
             params["path"] = args.path
+            if getattr(args, "element", None):
+                params["ref"] = args.element
+            if getattr(args, "rect", None):
+                params["rect"] = args.rect
 
     elif domain == "wait":
         params["strategy"] = args.strategy
