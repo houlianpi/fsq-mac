@@ -353,12 +353,18 @@ class AutomationCore:
 
     # -- capture ------------------------------------------------------------
 
-    def capture_screenshot(self, path: str, sid: str | None = None) -> Response:
+    def capture_screenshot(self, path: str, sid: str | None = None,
+                           ref: str | None = None, rect: str | None = None) -> Response:
         t = time.time()
         adapter, active, err = self._require_adapter("capture.screenshot", sid)
         if err:
             return err
-        result = adapter.screenshot(path)
+        if ref:
+            result = adapter.screenshot_element(ref, path)
+        elif rect:
+            result = adapter.screenshot_rect(rect, path)
+        else:
+            result = adapter.screenshot(path)
         if result.get("error_code"):
             return error_response("capture.screenshot", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))

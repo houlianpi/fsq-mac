@@ -10,6 +10,7 @@ here so the upper layers stay driver-agnostic.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -702,6 +703,41 @@ class AppiumMac2Adapter:
             with open(path, "wb") as f:
                 f.write(png)
             return {"path": path, "size_bytes": len(png)}
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+
+    def screenshot_element(self, ref: str, path: str, strategy: str = "accessibility_id") -> dict:
+        el, err = self._resolve_ref(ref, strategy)
+        if err:
+            return {"error_code": err, "detail": f"Element '{ref}' not found"}
+        try:
+            png = el.screenshot_as_png()
+            with open(path, "wb") as f:
+                f.write(png)
+            return {"path": path, "size_bytes": len(png)}
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+
+    def screenshot_rect(self, rect: str, path: str) -> dict:
+        parts = rect.split(",")
+        if len(parts) != 4:
+            return {"error_code": ErrorCode.INVALID_ARGUMENT,
+                    "detail": f"Expected x,y,w,h but got: {rect}"}
+        try:
+            x, y, w, h = [int(p.strip()) for p in parts]
+        except ValueError:
+            return {"error_code": ErrorCode.INVALID_ARGUMENT,
+                    "detail": f"Non-integer values in rect: {rect}"}
+        try:
+            result = subprocess.run(
+                ["screencapture", f"-R{x},{y},{w},{h}", path],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 0:
+                return {"error_code": ErrorCode.INTERNAL_ERROR,
+                        "detail": f"screencapture failed: {result.stderr.strip()}"}
+            size = os.path.getsize(path) if os.path.exists(path) else 0
+            return {"path": path, "size_bytes": size}
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
 

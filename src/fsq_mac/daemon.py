@@ -198,7 +198,10 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
     # -- capture --
     if domain == "capture":
         if action == "screenshot":
-            return core.capture_screenshot(body.get("path", "./screenshot.png"), sid)
+            return core.capture_screenshot(
+                body.get("path", "./screenshot.png"), sid,
+                ref=body.get("ref"), rect=body.get("rect"),
+            )
         if action == "ui-tree":
             return core.capture_ui_tree(sid)
 
