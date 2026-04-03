@@ -24,7 +24,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from fsq_mac.models import ElementInfo, ErrorCode
+from fsq_mac.models import ElementInfo, ErrorCode, LocatorQuery
 
 logger = logging.getLogger("mac-cli.adapter")
 
@@ -323,11 +323,149 @@ class AppiumMac2Adapter:
 
     # -- resolve ref: element_id or locator ---------------------------------
 
-    def _resolve_ref(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5):
+    def _coerce_query(self, ref: str | LocatorQuery) -> LocatorQuery:
+        if isinstance(ref, LocatorQuery):
+            return ref
+        return LocatorQuery(ref=ref)
+
+    def _element_role(self, element) -> str:
+        try:
+            role = element.get_attribute("role") or ""
+            if role:
+                return role
+        except Exception:
+            pass
+        try:
+            return getattr(element, "tag_name", "").replace("XCUIElementType", "")
+        except Exception:
+            return ""
+
+    def _element_name(self, element) -> str:
+        for attr in ("name", "title", "value"):
+            try:
+                value = element.get_attribute(attr) or ""
+                if value:
+                    return value
+            except Exception:
+                pass
+        try:
+            return element.text or ""
+        except Exception:
+            return ""
+
+    def _element_label(self, element) -> str:
+        try:
+            return element.get_attribute("label") or ""
+        except Exception:
+            return ""
+
+    def _matches_query(self, element, query: LocatorQuery) -> bool:
+        if query.role and self._element_role(element) != query.role:
+            return False
+        if query.name and self._element_name(element) != query.name:
+            return False
+        if query.label and self._element_label(element) != query.label:
+            return False
+        return True
+
+    def _resolve_query(self, query: LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5):
+        if query.ref:
+            return self._resolve_ref(query.ref, strategy, timeout)
+        if query.id:
+            locator = _resolve_locator("id", query.id)
+            el = _select_best_element(self._driver, locator, "id", query.id)
+            return (el, None) if el is not None else (None, ErrorCode.ELEMENT_NOT_FOUND)
+        if query.role or query.name:
+            try:
+                candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
+            except Exception:
+                candidates = []
+            matches = [el for el in candidates if self._matches_query(el, query)]
+            if not matches:
+                return None, ErrorCode.ELEMENT_NOT_FOUND
+            if len(matches) > 1:
+                return None, ErrorCode.ELEMENT_AMBIGUOUS
+            return matches[0], None
+        if query.label:
+            try:
+                candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
+            except Exception:
+                candidates = []
+            matches = [el for el in candidates if self._matches_query(el, query)]
+            if not matches:
+                return None, ErrorCode.ELEMENT_NOT_FOUND
+            if len(matches) > 1:
+                return None, ErrorCode.ELEMENT_AMBIGUOUS
+            return matches[0], None
+        if query.xpath:
+            locator = _resolve_locator("xpath", query.xpath)
+            el = _select_best_element(self._driver, locator, "xpath", query.xpath)
+            return (el, None) if el is not None else (None, ErrorCode.ELEMENT_NOT_FOUND)
+        return None, ErrorCode.INVALID_ARGUMENT
+
+    def _element_frame(self, element) -> tuple[int, int, int, int]:
+        loc = element.location
+        size = element.size
+        return (
+            int(loc.get("x", 0)),
+            int(loc.get("y", 0)),
+            int(size.get("width", 0)),
+            int(size.get("height", 0)),
+        )
+
+    def _element_visible(self, element) -> bool:
+        try:
+            if hasattr(element, "is_displayed") and not element.is_displayed():
+                return False
+        except Exception:
+            pass
+        try:
+            if element.get_attribute("visible") == "false":
+                return False
+        except Exception:
+            pass
+        try:
+            if element.get_attribute("displayed") == "false":
+                return False
+        except Exception:
+            pass
+        _, _, width, height = self._element_frame(element)
+        return width > 0 and height > 0
+
+    def _element_enabled(self, element) -> bool:
+        try:
+            return (element.get_attribute("enabled") or "true") != "false"
+        except Exception:
+            return True
+
+    def _wait_for_actionable(self, element, timeout: int = 5) -> dict | None:
+        deadline = time.time() + timeout
+        last_frame = None
+        while True:
+            frame = self._element_frame(element)
+            checks = {
+                "visible": self._element_visible(element),
+                "enabled": self._element_enabled(element),
+                "stable": last_frame is not None and frame == last_frame,
+            }
+            if all(checks.values()):
+                return None
+            if time.time() >= deadline:
+                waiting_on = [name for name, ok in checks.items() if not ok]
+                return {
+                    "error_code": ErrorCode.TIMEOUT,
+                    "detail": f"Element did not become actionable; waiting on {', '.join(waiting_on)}",
+                }
+            last_frame = frame
+            time.sleep(0.1)
+
+    def _resolve_ref(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5):
         """Resolve a ref to a WebElement.
 
         Returns (element, error_code|None).
         """
+        if isinstance(ref, LocatorQuery):
+            return self._resolve_query(ref, strategy, timeout)
         # Try element_id first
         if ref.startswith("e") and ref[1:].isdigit():
             el, err = self._get_ref(ref)
@@ -549,10 +687,13 @@ class AppiumMac2Adapter:
         status = "exactly_one_match" if len(result) == 1 else "multiple_matches"
         return status, result
 
-    def click(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
+    def click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
             return {"error_code": err}
+        wait_error = self._wait_for_actionable(el, timeout)
+        if wait_error:
+            return wait_error
         try:
             ActionChains(self._driver).move_to_element(el).click().perform()
         except Exception:
@@ -564,10 +705,13 @@ class AppiumMac2Adapter:
         self._invalidate_refs()
         return {}
 
-    def right_click(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
+    def right_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
             return {"error_code": err}
+        wait_error = self._wait_for_actionable(el, timeout)
+        if wait_error:
+            return wait_error
         try:
             ActionChains(self._driver).context_click(el).perform()
         except Exception as exc:
@@ -576,10 +720,13 @@ class AppiumMac2Adapter:
         self._invalidate_refs()
         return {}
 
-    def double_click(self, ref: str, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
+    def double_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
             return {"error_code": err}
+        wait_error = self._wait_for_actionable(el, timeout)
+        if wait_error:
+            return wait_error
         try:
             loc = el.location
             sz = el.size
@@ -594,10 +741,13 @@ class AppiumMac2Adapter:
         self._invalidate_refs()
         return {}
 
-    def hover(self, ref: str, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
+    def hover(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return {"error_code": err}
+        wait_error = self._wait_for_actionable(el)
+        if wait_error:
+            return wait_error
         try:
             ActionChains(self._driver).move_to_element(el).perform()
             if duration > 0:
@@ -606,10 +756,13 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         return {}
 
-    def type_text(self, ref: str, text: str, strategy: str = "accessibility_id") -> dict:
+    def type_text(self, ref: str | LocatorQuery, text: str, strategy: str = "accessibility_id") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return {"error_code": err}
+        wait_error = self._wait_for_actionable(el)
+        if wait_error:
+            return wait_error
         try:
             el.click()
             el.clear()
@@ -633,7 +786,7 @@ class AppiumMac2Adapter:
         self._invalidate_refs()
         return result
 
-    def scroll(self, ref: str, direction: str = "down", strategy: str = "accessibility_id") -> dict:
+    def scroll(self, ref: str | LocatorQuery, direction: str = "down", strategy: str = "accessibility_id") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return {"error_code": err}
@@ -644,13 +797,19 @@ class AppiumMac2Adapter:
         self._invalidate_refs()
         return {}
 
-    def drag(self, source_ref: str, target_ref: str, strategy: str = "accessibility_id") -> dict:
+    def drag(self, source_ref: str | LocatorQuery, target_ref: str | LocatorQuery, strategy: str = "accessibility_id") -> dict:
         src, err1 = self._resolve_ref(source_ref, strategy)
         tgt, err2 = self._resolve_ref(target_ref, strategy)
         if err1:
             return {"error_code": err1, "detail": f"source: {source_ref}"}
         if err2:
             return {"error_code": err2, "detail": f"target: {target_ref}"}
+        wait_error = self._wait_for_actionable(src)
+        if wait_error:
+            return wait_error
+        wait_error = self._wait_for_actionable(tgt)
+        if wait_error:
+            return wait_error
         try:
             ActionChains(self._driver).drag_and_drop(src, tgt).perform()
         except Exception as exc:
@@ -707,6 +866,99 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
         return {}
+
+    def input_click_at(self, x: int, y: int) -> dict:
+        script = (
+            'tell application "System Events"\n'
+            f'  click at {{{int(x)}, {int(y)}}}\n'
+            'end tell'
+        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 0:
+                return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": result.stderr.strip() or "click-at failed"}
+            self._invalidate_refs()
+            return {}
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+
+    def _assert_compare(self, actual: str, expected: str, kind: str) -> dict:
+        if actual == expected:
+            return {}
+        return {
+            "error_code": ErrorCode.ASSERTION_FAILED,
+            "detail": f"expected {kind} {expected!r} but got {actual!r}",
+        }
+
+    def assert_visible(self, query: LocatorQuery) -> dict:
+        el, err = self._resolve_ref(query)
+        if err:
+            return {"error_code": err}
+        if self._element_visible(el):
+            return {}
+        return {"error_code": ErrorCode.ASSERTION_FAILED, "detail": "element is not visible"}
+
+    def assert_enabled(self, query: LocatorQuery) -> dict:
+        el, err = self._resolve_ref(query)
+        if err:
+            return {"error_code": err}
+        if self._element_enabled(el):
+            return {}
+        return {"error_code": ErrorCode.ASSERTION_FAILED, "detail": "element is not enabled"}
+
+    def assert_text(self, query: LocatorQuery, expected: str) -> dict:
+        el, err = self._resolve_ref(query)
+        if err:
+            return {"error_code": err}
+        actual = getattr(el, "text", None)
+        if actual is None:
+            actual = self._element_name(el)
+        return self._assert_compare(actual, expected, "text")
+
+    def assert_value(self, query: LocatorQuery, expected: str) -> dict:
+        el, err = self._resolve_ref(query)
+        if err:
+            return {"error_code": err}
+        try:
+            actual = el.get_attribute("value") or ""
+        except Exception:
+            actual = ""
+        return self._assert_compare(actual, expected, "value")
+
+    def menu_click(self, path: str) -> dict:
+        parts = [part.strip() for part in path.split(">") if part.strip()]
+        if not parts:
+            return {"error_code": ErrorCode.INVALID_ARGUMENT, "detail": f"Invalid menu path: {path!r}"}
+        quoted_parts = ", ".join(f'"{_safe_applescript_str(part)}"' for part in parts)
+        script = (
+            'on clickMenu(menuParts)\n'
+            '  tell application "System Events"\n'
+            '    tell first application process whose frontmost is true\n'
+            '      set currentMenuItem to menu bar item (item 1 of menuParts) of menu bar 1\n'
+            '      click currentMenuItem\n'
+            '      repeat with i from 2 to (count of menuParts)\n'
+            '        set currentMenuItem to menu item (item i of menuParts) of menu 1 of currentMenuItem\n'
+            '        click currentMenuItem\n'
+            '      end repeat\n'
+            '    end tell\n'
+            '  end tell\n'
+            'end clickMenu\n'
+            f'clickMenu({{{quoted_parts}}})'
+        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 0:
+                return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": result.stderr.strip() or "menu click failed"}
+            self._invalidate_refs()
+            return {}
+        except Exception as exc:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
 
     # -- capture ------------------------------------------------------------
 
@@ -940,4 +1192,3 @@ class AppiumMac2Adapter:
             return r.status_code == 200, f"Appium server at {self._server_url}"
         except Exception as exc:
             return False, str(exc)
-

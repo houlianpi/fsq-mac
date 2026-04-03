@@ -10,14 +10,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from fsq_mac.core import AutomationCore, check_safety
-from fsq_mac.models import ErrorCode, SafetyLevel
+from fsq_mac.models import ErrorCode, LocatorQuery, SafetyLevel
 from fsq_mac.session import SessionManager
 import fsq_mac.session as session_module
 
 
 @pytest.fixture()
 def mock_adapter():
-    adapter = MagicMock()
+    adapter = MagicMock(unsafe=True)
     adapter.connected = True
     return adapter
 
@@ -174,6 +174,16 @@ class TestElementOps:
         resp = core.element_click("e0")
         assert resp.ok is True
 
+    def test_element_click_lazy_locator(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.click.return_value = {}
+        resp = core.element_click(ref=None, role="AXButton", name="Submit")
+        assert resp.ok is True
+        query = adapter.click.call_args.args[0]
+        assert isinstance(query, LocatorQuery)
+        assert query.role == "AXButton"
+        assert query.name == "Submit"
+
     def test_element_click_stale(self, core_with_session):
         core, adapter = core_with_session
         adapter.click.return_value = {"error_code": ErrorCode.ELEMENT_REFERENCE_STALE}
@@ -244,6 +254,24 @@ class TestElementOps:
         assert resp.ok is False
 
 
+class TestAssertOps:
+    def test_assert_visible_success(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.assert_visible.return_value = {}
+        resp = core.assert_visible(role="AXButton", name="Submit")
+        assert resp.ok is True
+
+    def test_assert_text_failure(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.assert_text.return_value = {
+            "error_code": ErrorCode.ASSERTION_FAILED,
+            "detail": "expected text 'Ready' but got 'Busy'",
+        }
+        resp = core.assert_text("Ready", role="AXStaticText", name="Status")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.ASSERTION_FAILED
+
+
 class TestInputOps:
     def test_input_key(self, core_with_session):
         core, adapter = core_with_session
@@ -267,6 +295,20 @@ class TestInputOps:
         core, adapter = core_with_session
         adapter.input_text.return_value = {}
         resp = core.input_text("hello")
+        assert resp.ok is True
+
+    def test_input_click_at(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.input_click_at.return_value = {}
+        resp = core.input_click_at(100, 200)
+        assert resp.ok is True
+
+
+class TestMenuOps:
+    def test_menu_click(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.menu_click.return_value = {}
+        resp = core.menu_click("File > Open")
         assert resp.ok is True
 
 

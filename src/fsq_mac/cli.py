@@ -17,6 +17,14 @@ from fsq_mac.client import DaemonClient
 from fsq_mac.formatters import output
 
 
+def _add_locator_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--id", dest="locator_id", help="Accessibility identifier")
+    parser.add_argument("--role", help="Accessibility role")
+    parser.add_argument("--name", help="Accessibility name/title")
+    parser.add_argument("--label", help="Accessibility label")
+    parser.add_argument("--xpath", help="Raw XPath locator")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="mac",
@@ -70,20 +78,26 @@ def _build_parser() -> argparse.ArgumentParser:
     find.add_argument("locator", help="Locator value")
     find.add_argument("--first-match", action="store_true", help="Return first match only")
     click = ea.add_parser("click", help="Click an element")
-    click.add_argument("ref", help="Element reference (e.g. e5 or locator)")
+    click.add_argument("ref", nargs="?", help="Element reference (e.g. e5)")
+    _add_locator_flags(click)
     rclick = ea.add_parser("right-click", help="Right-click an element")
-    rclick.add_argument("ref", help="Element reference")
+    rclick.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(rclick)
     dclick = ea.add_parser("double-click", help="Double-click an element")
-    dclick.add_argument("ref", help="Element reference")
+    dclick.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(dclick)
     etype = ea.add_parser("type", help="Type text into an element")
-    etype.add_argument("ref", help="Element reference")
+    etype.add_argument("ref", nargs="?", help="Element reference")
     etype.add_argument("text", help="Text to type")
+    _add_locator_flags(etype)
     scroll = ea.add_parser("scroll", help="Scroll an element")
-    scroll.add_argument("ref", help="Element reference")
+    scroll.add_argument("ref", nargs="?", help="Element reference")
     scroll.add_argument("direction", nargs="?", default="down",
                         choices=["up", "down", "left", "right"], help="Scroll direction")
+    _add_locator_flags(scroll)
     ehover = ea.add_parser("hover", help="Hover over an element")
-    ehover.add_argument("ref", help="Element reference")
+    ehover.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(ehover)
     drag = ea.add_parser("drag", help="Drag from source to target")
     drag.add_argument("source", help="Source element reference")
     drag.add_argument("target", help="Target element reference")
@@ -97,6 +111,33 @@ def _build_parser() -> argparse.ArgumentParser:
     hotkey.add_argument("combo", help="Combo (e.g. command+c)")
     text = ia.add_parser("text", help="Type text to focused element")
     text.add_argument("text", help="Text to type")
+    click_at = ia.add_parser("click-at", help="Click at screen coordinates")
+    click_at.add_argument("x", type=int, help="Screen x coordinate")
+    click_at.add_argument("y", type=int, help="Screen y coordinate")
+
+    # -- assert --
+    ass = sub.add_parser("assert", help="Assertions")
+    asa = ass.add_subparsers(dest="action")
+    assert_visible = asa.add_parser("visible", help="Assert element is visible")
+    assert_visible.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(assert_visible)
+    assert_enabled = asa.add_parser("enabled", help="Assert element is enabled")
+    assert_enabled.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(assert_enabled)
+    assert_text = asa.add_parser("text", help="Assert element text")
+    assert_text.add_argument("expected", help="Expected text")
+    assert_text.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(assert_text)
+    assert_value = asa.add_parser("value", help="Assert element value")
+    assert_value.add_argument("expected", help="Expected value")
+    assert_value.add_argument("ref", nargs="?", help="Element reference")
+    _add_locator_flags(assert_value)
+
+    # -- menu --
+    menu = sub.add_parser("menu", help="Menu bar operations")
+    ma = menu.add_subparsers(dest="action")
+    menu_click = ma.add_parser("click", help="Click a menu path")
+    menu_click.add_argument("path", help='Menu path (e.g. "File > Open")')
 
     # -- capture --
     cap = sub.add_parser("capture", help="Capture screen or UI tree")
@@ -140,6 +181,17 @@ def _run(args: argparse.Namespace) -> dict:
         "allow_dangerous": args.allow_dangerous,
     }
 
+    for key, attr in {
+        "id": "locator_id",
+        "role": "role",
+        "name": "name",
+        "label": "label",
+        "xpath": "xpath",
+    }.items():
+        value = getattr(args, attr, None)
+        if value:
+            params[key] = value
+
     # Map positional args to params based on domain/action
     if domain == "app" and action in ("launch", "activate", "terminate"):
         params["bundle_id"] = args.bundle_id
@@ -150,12 +202,15 @@ def _run(args: argparse.Namespace) -> dict:
             params["locator"] = args.locator
             params["first_match"] = args.first_match
         elif action in ("click", "right-click", "double-click", "hover"):
-            params["ref"] = args.ref
+            if args.ref:
+                params["ref"] = args.ref
         elif action == "type":
-            params["ref"] = args.ref
+            if args.ref:
+                params["ref"] = args.ref
             params["text"] = args.text
         elif action == "scroll":
-            params["ref"] = args.ref
+            if args.ref:
+                params["ref"] = args.ref
             params["direction"] = args.direction
         elif action == "drag":
             params["ref"] = args.source
@@ -168,6 +223,19 @@ def _run(args: argparse.Namespace) -> dict:
             params["combo"] = args.combo
         elif action == "text":
             params["text"] = args.text
+        elif action == "click-at":
+            params["x"] = args.x
+            params["y"] = args.y
+
+    elif domain == "assert":
+        if getattr(args, "ref", None):
+            params["ref"] = args.ref
+        if action in ("text", "value"):
+            params["expected"] = args.expected
+
+    elif domain == "menu":
+        if action == "click":
+            params["path"] = args.path
 
     elif domain == "capture":
         if action == "screenshot":

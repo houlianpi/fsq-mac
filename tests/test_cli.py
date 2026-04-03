@@ -88,6 +88,12 @@ class TestParserDomains:
         args = parser.parse_args(["element", "click", "e0"])
         assert args.ref == "e0"
 
+    def test_element_click_with_lazy_locator(self):
+        parser = _build_parser()
+        args = parser.parse_args(["element", "click", "--role", "AXButton", "--name", "Submit"])
+        assert args.role == "AXButton"
+        assert args.name == "Submit"
+
     def test_element_type(self):
         parser = _build_parser()
         args = parser.parse_args(["element", "type", "e0", "hello"])
@@ -114,6 +120,12 @@ class TestParserDomains:
         parser = _build_parser()
         args = parser.parse_args(["input", "hotkey", "command+c"])
         assert args.combo == "command+c"
+
+    def test_input_click_at(self):
+        parser = _build_parser()
+        args = parser.parse_args(["input", "click-at", "100", "200"])
+        assert args.x == 100
+        assert args.y == 200
 
     def test_input_text(self):
         parser = _build_parser()
@@ -154,6 +166,21 @@ class TestParserDomains:
         parser = _build_parser()
         args = parser.parse_args(["window", "focus", "0"])
         assert args.index == 0
+
+    def test_assert_visible(self):
+        parser = _build_parser()
+        args = parser.parse_args(["assert", "visible", "--role", "AXButton", "--name", "Submit"])
+        assert args.domain == "assert"
+        assert args.action == "visible"
+        assert args.role == "AXButton"
+        assert args.name == "Submit"
+
+    def test_menu_click(self):
+        parser = _build_parser()
+        args = parser.parse_args(["menu", "click", "File > Open"])
+        assert args.domain == "menu"
+        assert args.action == "click"
+        assert args.path == "File > Open"
 
 
 class TestRun:
@@ -207,6 +234,17 @@ class TestRun:
         call_kwargs = mock_instance.call.call_args[1]
         assert call_kwargs["ref"] == "e0"
 
+    def test_run_maps_lazy_locator_click(self):
+        args = self._make_args(["element", "click", "--role", "AXButton", "--name", "Submit"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_kwargs = mock_instance.call.call_args[1]
+        assert call_kwargs["role"] == "AXButton"
+        assert call_kwargs["name"] == "Submit"
+
     def test_run_maps_element_type(self):
         args = self._make_args(["element", "type", "e0", "hello"])
         with patch("fsq_mac.cli.DaemonClient") as MockClient:
@@ -259,6 +297,40 @@ class TestRun:
             _run(args)
         call_kwargs = mock_instance.call.call_args[1]
         assert call_kwargs["combo"] == "command+c"
+
+    def test_run_maps_input_click_at(self):
+        args = self._make_args(["input", "click-at", "100", "200"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_kwargs = mock_instance.call.call_args[1]
+        assert call_kwargs["x"] == 100
+        assert call_kwargs["y"] == 200
+
+    def test_run_maps_assert_visible(self):
+        args = self._make_args(["assert", "visible", "--role", "AXButton", "--name", "Submit"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("assert", "visible")
+        assert call_args[1]["role"] == "AXButton"
+        assert call_args[1]["name"] == "Submit"
+
+    def test_run_maps_menu_click(self):
+        args = self._make_args(["menu", "click", "File > Open"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("menu", "click")
+        assert call_args[1]["path"] == "File > Open"
 
     def test_run_maps_input_text(self):
         args = self._make_args(["input", "text", "hello"])

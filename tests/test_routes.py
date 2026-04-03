@@ -37,10 +37,18 @@ _ALL_COMMANDS = [
     ("element", "scroll"),
     ("element", "hover"),
     ("element", "drag"),
+    # assert
+    ("assert", "visible"),
+    ("assert", "enabled"),
+    ("assert", "text"),
+    ("assert", "value"),
     # input
     ("input", "key"),
     ("input", "hotkey"),
     ("input", "text"),
+    ("input", "click-at"),
+    # menu
+    ("menu", "click"),
     # capture
     ("capture", "screenshot"),
     ("capture", "ui-tree"),
@@ -67,7 +75,7 @@ def _make_response(domain, action):
 @pytest.mark.parametrize("domain,action", _ALL_COMMANDS)
 def test_route_is_dispatched(domain, action):
     """Every CLI command should produce a response (not 'Unknown command')."""
-    core = MagicMock()
+    core = MagicMock(unsafe=True)
     resp = _make_response(domain, action)
     # Set return value on all likely core methods
     core.session_start.return_value = resp
@@ -88,9 +96,15 @@ def test_route_is_dispatched(domain, action):
     core.element_scroll.return_value = resp
     core.element_hover.return_value = resp
     core.element_drag.return_value = resp
+    core.assert_visible.return_value = resp
+    core.assert_enabled.return_value = resp
+    core.assert_text.return_value = resp
+    core.assert_value.return_value = resp
     core.input_key.return_value = resp
     core.input_hotkey.return_value = resp
     core.input_text.return_value = resp
+    core.input_click_at.return_value = resp
+    core.menu_click.return_value = resp
     core.capture_screenshot.return_value = resp
     core.capture_ui_tree.return_value = resp
     core.window_current.return_value = resp
@@ -109,8 +123,14 @@ def test_route_is_dispatched(domain, action):
         "target": "e1",
         "key": "return",
         "combo": "command+c",
+        "x": 100,
+        "y": 200,
         "direction": "down",
         "path": "/tmp/test.png",
+        "role": "AXButton",
+        "name": "Submit",
+        "label": "Search",
+        "xpath": "//XCUIElementTypeButton[@name='Submit']",
         "timeout": 5000,
         "title": "Test",
         "index": 0,

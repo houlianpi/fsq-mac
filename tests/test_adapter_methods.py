@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from fsq_mac.adapters.appium_mac2 import AppiumMac2Adapter
-from fsq_mac.models import ErrorCode
+from fsq_mac.adapters.appium_mac2 import AppiumMac2Adapter, AppiumBy
+from fsq_mac.models import ErrorCode, LocatorQuery
 
 
 @pytest.fixture()
@@ -107,6 +107,39 @@ class TestResolveRef:
         assert el is None
         assert err == ErrorCode.ELEMENT_NOT_FOUND
 
+    def test_resolve_query_role_name(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 50}
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "role": "AXButton",
+            "name": "Submit",
+            "label": "Submit",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        el, err = adapter_with_driver._resolve_ref(LocatorQuery(role="AXButton", name="Submit"))
+        assert el is mock_el
+        assert err is None
+
+    def test_resolve_query_prefers_label_before_xpath(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 50}
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "label": "Search",
+            "name": "Ignored",
+        }.get(attr, "")
+
+        def _find_elements(by, value):
+            if value == "//*":
+                return [mock_el]
+            return []
+
+        adapter_with_driver._driver.find_elements.side_effect = _find_elements
+        el, err = adapter_with_driver._resolve_ref(LocatorQuery(label="Search", xpath="//wrong"))
+        assert el is mock_el
+        assert err is None
+
 
 class TestClick:
     def test_click_success(self, adapter_with_driver):
@@ -134,6 +167,41 @@ class TestClick:
             with patch("time.sleep"):
                 result = adapter_with_driver.click("e0")
         assert result == {}
+
+    def test_click_waits_for_actionable_query(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 10, "y": 20}
+        mock_el.size = {"width": 80, "height": 30}
+        mock_el.is_displayed.return_value = True
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "enabled": "true",
+            "visible": "true",
+            "displayed": "true",
+            "role": "AXButton",
+            "name": "Submit",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        with patch("time.sleep"), patch("fsq_mac.adapters.appium_mac2.ActionChains"):
+            result = adapter_with_driver.click(LocatorQuery(role="AXButton", name="Submit"))
+        assert result == {}
+
+    def test_click_timeout_when_disabled(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 10, "y": 20}
+        mock_el.size = {"width": 80, "height": 30}
+        mock_el.is_displayed.return_value = True
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "enabled": "false",
+            "visible": "true",
+            "displayed": "true",
+            "role": "AXButton",
+            "name": "Submit",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        with patch("time.sleep"), patch("time.time") as mock_time:
+            mock_time.side_effect = [0.0, 0.2, 0.4, 0.6, 1.2]
+            result = adapter_with_driver.click(LocatorQuery(role="AXButton", name="Submit"), timeout=1)
+        assert result["error_code"] == ErrorCode.TIMEOUT
 
 
 class TestRightClick:
@@ -257,6 +325,79 @@ class TestInputText:
     def test_input_text_success(self, adapter_with_driver):
         with patch("time.sleep"):
             result = adapter_with_driver.input_text("hello")
+        assert result == {}
+
+
+class TestPhase2Methods:
+    def test_assert_visible_success(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 50}
+        mock_el.is_displayed.return_value = True
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "visible": "true",
+            "displayed": "true",
+            "enabled": "true",
+            "role": "AXButton",
+            "name": "Submit",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        result = adapter_with_driver.assert_visible(LocatorQuery(role="AXButton", name="Submit"))
+        assert result == {}
+
+    def test_assert_text_failure(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 50}
+        mock_el.text = "Busy"
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "value": "Busy",
+            "name": "Status",
+            "role": "AXStaticText",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        result = adapter_with_driver.assert_text(LocatorQuery(role="AXStaticText", name="Status"), "Ready")
+        assert result["error_code"] == ErrorCode.ASSERTION_FAILED
+
+    def test_assert_text_allows_empty_string(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 50}
+        mock_el.text = ""
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "name": "Status",
+            "role": "AXStaticText",
+            "value": "fallback value",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        result = adapter_with_driver.assert_text(LocatorQuery(role="AXStaticText", name="Status"), "")
+        assert result == {}
+
+    def test_input_click_at_success(self, adapter_with_driver):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            result = adapter_with_driver.input_click_at(100, 200)
+        assert result == {}
+
+    def test_menu_click_success(self, adapter_with_driver):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            result = adapter_with_driver.menu_click("File > Open")
+        assert result == {}
+
+    def test_menu_click_rejects_empty_path(self, adapter_with_driver):
+        result = adapter_with_driver.menu_click("   >   ")
+        assert result["error_code"] == ErrorCode.INVALID_ARGUMENT
+
+    def test_menu_click_supports_nested_submenus(self, adapter_with_driver):
+        def _run(cmd, **kwargs):
+            script = cmd[2]
+            if "repeat with i from 2 to (count of menuParts)" not in script:
+                return MagicMock(returncode=1, stderr="missing nested traversal")
+            return MagicMock(returncode=0, stderr="")
+
+        with patch("subprocess.run", side_effect=_run):
+            result = adapter_with_driver.menu_click("File > Export > PDF")
         assert result == {}
 
     def test_input_text_error(self, adapter_with_driver):

@@ -102,6 +102,14 @@ def _opts(body: dict) -> dict:
     }
 
 
+def _locator_kwargs(body: dict) -> dict:
+    return {
+        key: body.get(key)
+        for key in ("id", "role", "name", "label", "xpath")
+        if body.get(key) is not None
+    }
+
+
 # ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
@@ -182,6 +190,7 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
     if domain == "element":
         ref = body.get("ref", "")
         strategy = body.get("strategy", "accessibility_id")
+        locator = _locator_kwargs(body)
         if action == "inspect":
             return core.element_inspect(sid)
         if action == "find":
@@ -189,19 +198,19 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
             first_match = body.get("first_match", False)
             return core.element_find(locator, strategy, first_match, sid)
         if action == "click":
-            return core.element_click(ref, strategy, sid)
+            return core.element_click(ref or None, strategy, sid, **locator)
         if action == "right-click":
-            return core.element_right_click(ref, strategy, sid)
+            return core.element_right_click(ref or None, strategy, sid, **locator)
         if action == "double-click":
-            return core.element_double_click(ref, strategy, sid)
+            return core.element_double_click(ref or None, strategy, sid, **locator)
         if action == "type":
             text = body.get("text", "")
-            return core.element_type(ref, text, strategy, sid)
+            return core.element_type(ref or None, text, strategy, sid, **locator)
         if action == "scroll":
             direction = body.get("direction", "down")
-            return core.element_scroll(ref, direction, strategy, sid)
+            return core.element_scroll(ref or None, direction, strategy, sid, **locator)
         if action == "hover":
-            return core.element_hover(ref, strategy, sid)
+            return core.element_hover(ref or None, strategy, sid, **locator)
         if action == "drag":
             target = body.get("target", "")
             return core.element_drag(ref, target, strategy, sid)
@@ -214,6 +223,25 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
             return core.input_hotkey(body.get("combo", ""), sid)
         if action == "text":
             return core.input_text(body.get("text", ""), sid)
+        if action == "click-at":
+            return core.input_click_at(body.get("x", 0), body.get("y", 0), sid)
+
+    # -- assert --
+    if domain == "assert":
+        locator = _locator_kwargs(body)
+        if action == "visible":
+            return core.assert_visible(body.get("ref"), sid=sid, **locator)
+        if action == "enabled":
+            return core.assert_enabled(body.get("ref"), sid=sid, **locator)
+        if action == "text":
+            return core.assert_text(body.get("expected", ""), body.get("ref"), sid=sid, **locator)
+        if action == "value":
+            return core.assert_value(body.get("expected", ""), body.get("ref"), sid=sid, **locator)
+
+    # -- menu --
+    if domain == "menu":
+        if action == "click":
+            return core.menu_click(body.get("path", ""), sid)
 
     # -- capture --
     if domain == "capture":

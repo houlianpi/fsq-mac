@@ -21,3 +21,12 @@ def test_protocol_is_runtime_checkable():
     # Non-adapters should not match
     assert not isinstance("a string", AutomationAdapter)
     assert not isinstance(42, AutomationAdapter)
+
+
+def test_protocol_exposes_phase2_methods():
+    assert hasattr(AutomationAdapter, "assert_visible")
+    assert hasattr(AutomationAdapter, "assert_enabled")
+    assert hasattr(AutomationAdapter, "assert_text")
+    assert hasattr(AutomationAdapter, "assert_value")
+    assert hasattr(AutomationAdapter, "menu_click")
+    assert hasattr(AutomationAdapter, "input_click_at")

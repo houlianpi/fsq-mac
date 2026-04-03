@@ -29,6 +29,7 @@ class ErrorCode(str, Enum):
     PERMISSION_DENIED = "PERMISSION_DENIED"
     ACTION_BLOCKED = "ACTION_BLOCKED"
     INVALID_ARGUMENT = "INVALID_ARGUMENT"
+    ASSERTION_FAILED = "ASSERTION_FAILED"
     TYPE_VERIFICATION_FAILED = "TYPE_VERIFICATION_FAILED"
     TIMEOUT = "TIMEOUT"
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -204,3 +205,24 @@ class ElementInfo:
             "frame": self.frame,
             "locator_hint": self.locator_hint,
         }
+
+
+@dataclass
+class LocatorQuery:
+    ref: str | None = None
+    id: str | None = None
+    role: str | None = None
+    name: str | None = None
+    label: str | None = None
+    xpath: str | None = None
+
+    def to_dict(self) -> dict:
+        data = {
+            "ref": self.ref,
+            "id": self.id,
+            "role": self.role,
+            "name": self.name,
+            "label": self.label,
+            "xpath": self.xpath,
+        }
+        return {k: v for k, v in data.items() if v not in (None, "")}

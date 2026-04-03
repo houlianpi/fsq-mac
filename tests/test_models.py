@@ -9,7 +9,7 @@ import json
 
 from fsq_mac.models import (
     ErrorCode, SafetyLevel, CLIError, ResponseMeta, Response,
-    ElementInfo, success_response, error_response, _RETRYABLE,
+    ElementInfo, LocatorQuery, success_response, error_response, _RETRYABLE,
 )
 
 
@@ -27,6 +27,7 @@ class TestErrorCode:
     def test_error_code_values(self):
         assert ErrorCode.SESSION_NOT_FOUND.value == "SESSION_NOT_FOUND"
         assert ErrorCode.PERMISSION_DENIED.value == "PERMISSION_DENIED"
+        assert ErrorCode.ASSERTION_FAILED.value == "ASSERTION_FAILED"
 
 
 class TestCLIError:
@@ -119,6 +120,16 @@ class TestElementInfo:
         assert el.visible is True
         assert el.focused is False
         assert el.doc_order_index == -1
+
+
+class TestLocatorQuery:
+    def test_to_dict_for_role_name(self):
+        query = LocatorQuery(role="AXButton", name="Submit")
+        assert query.to_dict() == {"role": "AXButton", "name": "Submit"}
+
+    def test_to_dict_omits_empty_fields(self):
+        query = LocatorQuery(ref="e0", label="", xpath=None)
+        assert query.to_dict() == {"ref": "e0"}
 
 
 class TestHelpers:

@@ -9,7 +9,7 @@ import time
 
 from fsq_mac.models import (
     ErrorCode, Response, ResponseMeta, SafetyLevel,
-    success_response, error_response,
+    LocatorQuery, success_response, error_response,
 )
 from fsq_mac.session import SessionManager
 
@@ -42,6 +42,12 @@ _SAFETY: dict[str, SafetyLevel] = {
     "input.key": SafetyLevel.GUARDED,
     "input.hotkey": SafetyLevel.GUARDED,
     "input.text": SafetyLevel.GUARDED,
+    "input.click-at": SafetyLevel.GUARDED,
+    "assert.visible": SafetyLevel.SAFE,
+    "assert.enabled": SafetyLevel.SAFE,
+    "assert.text": SafetyLevel.SAFE,
+    "assert.value": SafetyLevel.SAFE,
+    "menu.click": SafetyLevel.GUARDED,
     "capture.screenshot": SafetyLevel.SAFE,
     "capture.ui-tree": SafetyLevel.SAFE,
     "wait.element": SafetyLevel.SAFE,
@@ -95,6 +101,17 @@ class AutomationCore:
                 suggested_next_action="mac session start",
             )
         return adapter, active, None
+
+    def _query_from_args(
+        self,
+        ref: str | None = None,
+        id: str | None = None,
+        role: str | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        xpath: str | None = None,
+    ) -> LocatorQuery:
+        return LocatorQuery(ref=ref, id=id, role=role, name=name, label=label, xpath=xpath)
 
     # -- session ------------------------------------------------------------
 
@@ -232,45 +249,54 @@ class AutomationCore:
         },
                                 session_id=active, meta=self._meta(t, active))
 
-    def _element_action(self, command: str, ref: str, action_fn, strategy: str,
+    def _element_action(self, command: str, query: LocatorQuery, action_fn, strategy: str,
                         sid: str | None = None, **extra) -> Response:
         t = time.time()
         adapter, active, err = self._require_adapter(command, sid)
         if err:
             return err
-        result = action_fn(ref, strategy=strategy, **extra)
+        result = action_fn(query, strategy=strategy, **extra)
         err_code = result.get("error_code")
         if err_code:
+            ref = query.ref or query.to_dict()
             msg = result.get("detail", f"Action failed on '{ref}'")
             suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
             return error_response(command, err_code, msg, session_id=active,
                                   meta=self._meta(t, active), suggested_next_action=suggested)
         return success_response(command, data=result or {}, session_id=active, meta=self._meta(t, active))
 
-    def element_click(self, ref: str, strategy: str = "accessibility_id", sid: str | None = None) -> Response:
+    def element_click(self, ref: str | None = None, strategy: str = "accessibility_id", sid: str | None = None,
+                      **locator) -> Response:
         adapter, _, err = self._require_adapter("element.click", sid)
         if err:
             return err
-        return self._element_action("element.click", ref, adapter.click, strategy, sid)
+        query = self._query_from_args(ref=ref, **locator)
+        return self._element_action("element.click", query, adapter.click, strategy, sid)
 
-    def element_right_click(self, ref: str, strategy: str = "accessibility_id", sid: str | None = None) -> Response:
+    def element_right_click(self, ref: str | None = None, strategy: str = "accessibility_id", sid: str | None = None,
+                            **locator) -> Response:
         adapter, _, err = self._require_adapter("element.right-click", sid)
         if err:
             return err
-        return self._element_action("element.right-click", ref, adapter.right_click, strategy, sid)
+        query = self._query_from_args(ref=ref, **locator)
+        return self._element_action("element.right-click", query, adapter.right_click, strategy, sid)
 
-    def element_double_click(self, ref: str, strategy: str = "accessibility_id", sid: str | None = None) -> Response:
+    def element_double_click(self, ref: str | None = None, strategy: str = "accessibility_id", sid: str | None = None,
+                             **locator) -> Response:
         adapter, _, err = self._require_adapter("element.double-click", sid)
         if err:
             return err
-        return self._element_action("element.double-click", ref, adapter.double_click, strategy, sid)
+        query = self._query_from_args(ref=ref, **locator)
+        return self._element_action("element.double-click", query, adapter.double_click, strategy, sid)
 
-    def element_type(self, ref: str, text: str, strategy: str = "accessibility_id", sid: str | None = None) -> Response:
+    def element_type(self, ref: str | None, text: str, strategy: str = "accessibility_id",
+                     sid: str | None = None, **locator) -> Response:
         t = time.time()
         adapter, active, err = self._require_adapter("element.type", sid)
         if err:
             return err
-        result = adapter.type_text(ref, text, strategy=strategy)
+        query = self._query_from_args(ref=ref, **locator)
+        result = adapter.type_text(query, text, strategy=strategy)
         err_code = result.get("error_code")
         if err_code:
             return error_response("element.type", err_code, result.get("detail", ""),
@@ -289,24 +315,28 @@ class AutomationCore:
         return success_response("element.type", data=data or None,
                                 session_id=active, meta=self._meta(t, active))
 
-    def element_scroll(self, ref: str, direction: str = "down", strategy: str = "accessibility_id", sid: str | None = None) -> Response:
+    def element_scroll(self, ref: str | None, direction: str = "down", strategy: str = "accessibility_id",
+                       sid: str | None = None, **locator) -> Response:
         adapter, _, err = self._require_adapter("element.scroll", sid)
         if err:
             return err
-        return self._element_action("element.scroll", ref, adapter.scroll, strategy, sid, direction=direction)
+        query = self._query_from_args(ref=ref, **locator)
+        return self._element_action("element.scroll", query, adapter.scroll, strategy, sid, direction=direction)
 
-    def element_hover(self, ref: str, strategy: str = "accessibility_id", sid: str | None = None) -> Response:
+    def element_hover(self, ref: str | None = None, strategy: str = "accessibility_id", sid: str | None = None,
+                      **locator) -> Response:
         adapter, _, err = self._require_adapter("element.hover", sid)
         if err:
             return err
-        return self._element_action("element.hover", ref, adapter.hover, strategy, sid)
+        query = self._query_from_args(ref=ref, **locator)
+        return self._element_action("element.hover", query, adapter.hover, strategy, sid)
 
     def element_drag(self, source: str, target: str, strategy: str = "accessibility_id", sid: str | None = None) -> Response:
         t = time.time()
         adapter, active, err = self._require_adapter("element.drag", sid)
         if err:
             return err
-        result = adapter.drag(source, target, strategy=strategy)
+        result = adapter.drag(self._query_from_args(ref=source), self._query_from_args(ref=target), strategy=strategy)
         err_code = result.get("error_code")
         if err_code:
             return error_response("element.drag", err_code, result.get("detail", ""),
@@ -347,6 +377,54 @@ class AutomationCore:
             return error_response("input.text", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
         return success_response("input.text", session_id=active, meta=self._meta(t, active))
+
+    def input_click_at(self, x: int, y: int, sid: str | None = None) -> Response:
+        t = time.time()
+        adapter, active, err = self._require_adapter("input.click-at", sid)
+        if err:
+            return err
+        result = adapter.input_click_at(x, y)
+        if result.get("error_code"):
+            return error_response("input.click-at", result["error_code"], result.get("detail", ""),
+                                  session_id=active, meta=self._meta(t, active))
+        return success_response("input.click-at", session_id=active, meta=self._meta(t, active))
+
+    def _assert_element(self, command: str, method_name: str, expected: str | None = None,
+                        sid: str | None = None, ref: str | None = None, **locator) -> Response:
+        t = time.time()
+        adapter, active, err = self._require_adapter(command, sid)
+        if err:
+            return err
+        query = self._query_from_args(ref=ref, **locator)
+        action_fn = getattr(adapter, method_name)
+        result = action_fn(query) if expected is None else action_fn(query, expected)
+        if result.get("error_code"):
+            return error_response(command, result["error_code"], result.get("detail", ""),
+                                  session_id=active, meta=self._meta(t, active))
+        return success_response(command, data=result or {}, session_id=active, meta=self._meta(t, active))
+
+    def assert_visible(self, ref: str | None = None, sid: str | None = None, **locator) -> Response:
+        return self._assert_element("assert.visible", "assert_visible", sid=sid, ref=ref, **locator)
+
+    def assert_enabled(self, ref: str | None = None, sid: str | None = None, **locator) -> Response:
+        return self._assert_element("assert.enabled", "assert_enabled", sid=sid, ref=ref, **locator)
+
+    def assert_text(self, expected: str, ref: str | None = None, sid: str | None = None, **locator) -> Response:
+        return self._assert_element("assert.text", "assert_text", expected=expected, sid=sid, ref=ref, **locator)
+
+    def assert_value(self, expected: str, ref: str | None = None, sid: str | None = None, **locator) -> Response:
+        return self._assert_element("assert.value", "assert_value", expected=expected, sid=sid, ref=ref, **locator)
+
+    def menu_click(self, path: str, sid: str | None = None) -> Response:
+        t = time.time()
+        adapter, active, err = self._require_adapter("menu.click", sid)
+        if err:
+            return err
+        result = adapter.menu_click(path)
+        if result.get("error_code"):
+            return error_response("menu.click", result["error_code"], result.get("detail", ""),
+                                  session_id=active, meta=self._meta(t, active))
+        return success_response("menu.click", data=result or {}, session_id=active, meta=self._meta(t, active))
 
     # -- capture ------------------------------------------------------------
 
