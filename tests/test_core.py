@@ -103,9 +103,12 @@ class TestAppOps:
         resp = core.app_launch("com.apple.calculator")
         assert resp.ok is True
 
-    def test_app_launch_exception(self, core_with_session):
+    def test_app_launch_error_dict(self, core_with_session):
         core, adapter = core_with_session
-        adapter.app_launch.side_effect = Exception("connection refused")
+        adapter.app_launch.return_value = {
+            "error_code": ErrorCode.BACKEND_UNAVAILABLE,
+            "detail": "connection refused",
+        }
         resp = core.app_launch("com.apple.calculator")
         assert resp.ok is False
         assert resp.error.code == ErrorCode.BACKEND_UNAVAILABLE

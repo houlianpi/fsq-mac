@@ -83,6 +83,12 @@ class TestCallSuccess:
         result = client.call("session", "start")
         assert result["ok"] is False
         assert result["error"]["code"] == "BACKEND_UNAVAILABLE"
+        # Standard fields present
+        assert result["session_id"] is None
+        assert result["data"] is None
+        assert result["error"]["details"] == {}
+        assert result["error"]["suggested_next_action"] is None
+        assert result["error"]["doctor_hint"] is None
 
     def test_call_retry_on_connect_error(self, monkeypatch):
         client = DaemonClient()
@@ -132,6 +138,12 @@ class TestCallSuccess:
         result = client.call("session", "start")
         assert result["ok"] is False
         assert result["error"]["code"] == "INTERNAL_ERROR"
+        # Standard fields present
+        assert result["session_id"] is None
+        assert result["data"] is None
+        assert result["error"]["details"] == {}
+        assert result["error"]["suggested_next_action"] is None
+        assert result["error"]["doctor_hint"] is None
 
 
 class TestStopDaemon:
@@ -157,7 +169,13 @@ class TestStopDaemon:
 
 
 class TestConnectionPool:
-    def test_get_client_creates_once(self):
+    def test_client_created_eagerly(self):
+        client = DaemonClient()
+        assert client._client is not None
+        assert isinstance(client._client, httpx.Client)
+        client._client.close()
+
+    def test_get_client_returns_same_instance(self):
         client = DaemonClient()
         c1 = client._get_client()
         c2 = client._get_client()
@@ -170,10 +188,11 @@ class TestConnectionPool:
         assert c.headers.get("x-verbosity") == "debug"
         c.close()
 
-    def test_client_reset_on_retry(self):
+    def test_client_replaced_on_retry(self):
         client = DaemonClient()
         c1 = client._get_client()
-        client._client = None  # simulate retry reset
+        # Simulate retry: create new client
+        client._client = httpx.Client(timeout=30)
         c2 = client._get_client()
         assert c1 is not c2
         c1.close()

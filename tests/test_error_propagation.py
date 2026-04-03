@@ -33,3 +33,30 @@ class TestAdapterErrorDicts:
         # Should return a normal dict, not an error dict
         assert "error_code" not in result
         assert result["bundle_id"] == "com.test"
+
+    def test_app_launch_returns_error_dict(self):
+        adapter = AppiumMac2Adapter({"server_url": "http://127.0.0.1:4723"})
+        # No driver, connect will fail
+        result = adapter.app_launch("com.test")
+        assert result["error_code"] == ErrorCode.BACKEND_UNAVAILABLE
+        assert "detail" in result
+
+    def test_app_activate_unsafe_bundle_id(self):
+        adapter = AppiumMac2Adapter({"server_url": "http://127.0.0.1:4723"})
+        adapter._driver = MagicMock()
+        adapter._driver.get_window_size.return_value = {"width": 100, "height": 100}
+        # activate_app raises to trigger AppleScript fallback
+        adapter._driver.activate_app.side_effect = Exception("not supported")
+        result = adapter.app_activate('com.test";exit')
+        assert result["error_code"] == ErrorCode.INVALID_ARGUMENT
+        assert "Unsafe bundle ID" in result["detail"]
+
+    def test_app_terminate_unsafe_bundle_id(self):
+        adapter = AppiumMac2Adapter({"server_url": "http://127.0.0.1:4723"})
+        adapter._driver = MagicMock()
+        adapter._driver.get_window_size.return_value = {"width": 100, "height": 100}
+        # terminate_app raises to trigger AppleScript fallback
+        adapter._driver.terminate_app.side_effect = Exception("not supported")
+        result = adapter.app_terminate('com.test";exit')
+        assert result["error_code"] == ErrorCode.INVALID_ARGUMENT
+        assert "Unsafe bundle ID" in result["detail"]

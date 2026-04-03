@@ -241,9 +241,9 @@ class AppiumMac2Adapter:
         self._element_refs: dict[str, Any] = {}
         self._snapshot_generation: int = 0
         # Configurable delays
-        self._delay_post_action: float = config.get("delay_post_action", 1.0)
-        self._delay_pre_input: float = config.get("delay_pre_input", 0.5)
-        self._delay_double_click_gap: float = config.get("delay_double_click_gap", 0.1)
+        self._delay_post_action: float = config.get("delay_post_action", 0)
+        self._delay_pre_input: float = config.get("delay_pre_input", 0)
+        self._delay_double_click_gap: float = config.get("delay_double_click_gap", 0)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -347,17 +347,20 @@ class AppiumMac2Adapter:
     # -- app operations -----------------------------------------------------
 
     def app_launch(self, bundle_id: str, arguments: list | None = None) -> dict:
-        if self._driver and self.connected:
-            self.disconnect()
-        cfg = dict(self._config)
-        cfg["bundleId"] = bundle_id
-        if arguments:
-            cfg["arguments"] = arguments
-        cfg.pop("server_url", None)
-        options = Mac2Options().load_capabilities(cfg)
-        self._driver = webdriver.Remote(self._server_url, options=options)
-        self._invalidate_refs()
-        return self._frontmost_info()
+        try:
+            if self._driver and self.connected:
+                self.disconnect()
+            cfg = dict(self._config)
+            cfg["bundleId"] = bundle_id
+            if arguments:
+                cfg["arguments"] = arguments
+            cfg.pop("server_url", None)
+            options = Mac2Options().load_capabilities(cfg)
+            self._driver = webdriver.Remote(self._server_url, options=options)
+            self._invalidate_refs()
+            return self._frontmost_info()
+        except Exception as exc:
+            return {"error_code": ErrorCode.BACKEND_UNAVAILABLE, "detail": str(exc)}
 
     def app_activate(self, bundle_id: str) -> dict:
         if not self._driver or not self.connected:
@@ -366,7 +369,10 @@ class AppiumMac2Adapter:
             self._driver.activate_app(bundle_id)
         except Exception:
             # Mac2 driver may not support activate_app — fall back to AppleScript
-            safe_bid = _safe_applescript_str(bundle_id)
+            try:
+                safe_bid = _safe_applescript_str(bundle_id)
+            except ValueError:
+                return {"error_code": ErrorCode.INVALID_ARGUMENT, "detail": f"Unsafe bundle ID: {bundle_id!r}"}
             subprocess.run(
                 ["osascript", "-e",
                  f'tell application id "{safe_bid}" to activate'],
@@ -396,7 +402,10 @@ class AppiumMac2Adapter:
             self._driver.terminate_app(bundle_id)
         except Exception:
             # Mac2 driver may not support terminate_app — fall back to AppleScript
-            safe_bid = _safe_applescript_str(bundle_id)
+            try:
+                safe_bid = _safe_applescript_str(bundle_id)
+            except ValueError:
+                return {"error_code": ErrorCode.INVALID_ARGUMENT, "detail": f"Unsafe bundle ID: {bundle_id!r}"}
             subprocess.run(
                 ["osascript", "-e",
                  f'tell application id "{safe_bid}" to quit'],
@@ -880,7 +889,10 @@ class AppiumMac2Adapter:
         bid = self._managed_bundle_id()
         if not bid:
             return False
-        safe_bid = _safe_applescript_str(bid)
+        try:
+            safe_bid = _safe_applescript_str(bid)
+        except ValueError:
+            return False
         script = ('tell application "System Events"\n'
                   f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
                   '  get name of every window of ap\n'

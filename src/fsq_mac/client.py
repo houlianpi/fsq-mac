@@ -29,8 +29,29 @@ class DaemonClient:
     def __init__(self, timeout: float = 30.0, verbosity: str | None = None):
         self._timeout = timeout
         self._base_url: str | None = None
-        self._client: httpx.Client | None = None
         self._verbosity = verbosity
+        headers = {}
+        if self._verbosity:
+            headers["X-Verbosity"] = self._verbosity
+        self._client = httpx.Client(timeout=self._timeout, headers=headers)
+
+    @staticmethod
+    def _client_error(command: str, code: str, message: str, retryable: bool) -> dict:
+        return {
+            "ok": False,
+            "command": command,
+            "session_id": None,
+            "data": None,
+            "error": {
+                "code": code,
+                "message": message,
+                "retryable": retryable,
+                "details": {},
+                "suggested_next_action": None,
+                "doctor_hint": None,
+            },
+            "meta": {},
+        }
 
     # -- daemon lifecycle ---------------------------------------------------
 
@@ -56,7 +77,7 @@ class DaemonClient:
             return False
         port = self._read_port() or DEFAULT_PORT
         try:
-            r = httpx.get(f"http://127.0.0.1:{port}/health", timeout=3)
+            r = self._client.get(f"http://127.0.0.1:{port}/health", timeout=3)
             return r.status_code == 200
         except Exception:
             return False
@@ -83,7 +104,7 @@ class DaemonClient:
             for _ in range(30):
                 time.sleep(0.5)
                 try:
-                    r = httpx.get(f"http://127.0.0.1:{port}/health", timeout=2)
+                    r = self._client.get(f"http://127.0.0.1:{port}/health", timeout=2)
                     if r.status_code == 200:
                         return port
                 except Exception:
@@ -107,69 +128,39 @@ class DaemonClient:
     # -- API call -----------------------------------------------------------
 
     def _get_client(self) -> httpx.Client:
-        if self._client is None:
-            headers = {}
-            if self._verbosity:
-                headers["X-Verbosity"] = self._verbosity
-            self._client = httpx.Client(timeout=self._timeout, headers=headers)
         return self._client
 
     def call(self, domain: str, action: str, **params) -> dict:
         """Send a command to the daemon and return the parsed JSON response."""
         base = self._ensure_daemon()
         url = f"{base}/api/{domain}/{action}"
+        command = f"{domain}.{action}"
         try:
             r = self._get_client().post(url, json=params, timeout=self._timeout)
             if r.status_code >= 500:
-                return {
-                    "ok": False,
-                    "command": f"{domain}.{action}",
-                    "error": {
-                        "code": "BACKEND_UNAVAILABLE",
-                        "message": f"Daemon returned HTTP {r.status_code}",
-                        "retryable": True,
-                    },
-                }
+                return self._client_error(command, "BACKEND_UNAVAILABLE",
+                                          f"Daemon returned HTTP {r.status_code}", True)
             return r.json()
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
             # Daemon may have died — try restart once
             self._base_url = None
-            self._client = None
+            headers = {}
+            if self._verbosity:
+                headers["X-Verbosity"] = self._verbosity
+            self._client = httpx.Client(timeout=self._timeout, headers=headers)
             try:
                 base = self._ensure_daemon()
                 url = f"{base}/api/{domain}/{action}"
                 r = self._get_client().post(url, json=params, timeout=self._timeout)
                 if r.status_code >= 500:
-                    return {
-                        "ok": False,
-                        "command": f"{domain}.{action}",
-                        "error": {
-                            "code": "BACKEND_UNAVAILABLE",
-                            "message": f"Daemon returned HTTP {r.status_code}",
-                            "retryable": True,
-                        },
-                    }
+                    return self._client_error(command, "BACKEND_UNAVAILABLE",
+                                              f"Daemon returned HTTP {r.status_code}", True)
                 return r.json()
             except Exception as exc:
-                return {
-                    "ok": False,
-                    "command": f"{domain}.{action}",
-                    "error": {
-                        "code": "BACKEND_UNAVAILABLE",
-                        "message": f"Cannot reach daemon: {exc}",
-                        "retryable": True,
-                    },
-                }
+                return self._client_error(command, "BACKEND_UNAVAILABLE",
+                                          f"Cannot reach daemon: {exc}", True)
         except Exception as exc:
-            return {
-                "ok": False,
-                "command": f"{domain}.{action}",
-                "error": {
-                    "code": "INTERNAL_ERROR",
-                    "message": str(exc),
-                    "retryable": False,
-                },
-            }
+            return self._client_error(command, "INTERNAL_ERROR", str(exc), False)
 
     # -- convenience --------------------------------------------------------
 

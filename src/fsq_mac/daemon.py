@@ -65,7 +65,8 @@ def _load_config() -> dict:
 
 def _build_core() -> AutomationCore:
     config = _load_config()
-    sm = SessionManager(config)
+    backend = config.get("backend", "appium_mac2")
+    sm = SessionManager(config, backend=backend)
     return AutomationCore(sm)
 
 

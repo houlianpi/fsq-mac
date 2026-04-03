@@ -132,21 +132,20 @@ class AutomationCore:
         adapter, active, err = self._require_adapter("app.launch", sid)
         if err:
             return err
-        try:
-            info = adapter.app_launch(bundle_id)
-            self._sm.update_state(active, frontmost_app=bundle_id)
-            # Update frontmost_window metadata (#8)
-            try:
-                win_info = adapter.window_current()
-                if win_info.get("title"):
-                    self._sm.update_state(active, frontmost_window=win_info["title"])
-            except Exception:
-                pass
-            return success_response("app.launch", data=info, session_id=active, meta=self._meta(t, active))
-        except Exception as exc:
-            return error_response("app.launch", ErrorCode.BACKEND_UNAVAILABLE, str(exc),
+        info = adapter.app_launch(bundle_id)
+        if info.get("error_code"):
+            return error_response("app.launch", info["error_code"], info.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active),
                                   doctor_hint="mac doctor backend")
+        self._sm.update_state(active, frontmost_app=bundle_id)
+        # Update frontmost_window metadata (#8)
+        try:
+            win_info = adapter.window_current()
+            if win_info.get("title"):
+                self._sm.update_state(active, frontmost_window=win_info["title"])
+        except Exception:
+            pass
+        return success_response("app.launch", data=info, session_id=active, meta=self._meta(t, active))
 
     def app_activate(self, bundle_id: str, sid: str | None = None) -> Response:
         t = time.time()
