@@ -26,6 +26,8 @@ packages = ["src/fsq_mac"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=7.1.0",
+    "anyio[trio]>=4.0",
+    "pytest-anyio>=0.0.0",
 ]
 
 [tool.pytest.ini_options]
