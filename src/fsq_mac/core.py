@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Callable
@@ -56,6 +57,7 @@ _SAFETY: dict[str, SafetyLevel] = {
     "trace.status": SafetyLevel.SAFE,
     "trace.replay": SafetyLevel.GUARDED,
     "trace.viewer": SafetyLevel.SAFE,
+    "trace.codegen": SafetyLevel.SAFE,
     "capture.screenshot": SafetyLevel.SAFE,
     "capture.ui-tree": SafetyLevel.SAFE,
     "wait.element": SafetyLevel.SAFE,
@@ -64,6 +66,7 @@ _SAFETY: dict[str, SafetyLevel] = {
     "doctor": SafetyLevel.SAFE,
     "doctor.permissions": SafetyLevel.SAFE,
     "doctor.backend": SafetyLevel.SAFE,
+    "doctor.plugins": SafetyLevel.SAFE,
 }
 
 
@@ -577,6 +580,25 @@ class AutomationCore:
         viewer_path = self._trace_store.generate_viewer(str(manifest_path))
         return success_response("trace.viewer", data={"path": viewer_path},
                                 session_id=sid, meta=self._meta(t, sid))
+
+    def trace_codegen(self, path: str, sid: str | None = None) -> Response:
+        t = time.time()
+        if not path:
+            return error_response("trace.codegen", ErrorCode.INVALID_ARGUMENT,
+                                  "path is required",
+                                  session_id=sid, meta=self._meta(t, sid))
+        try:
+            run = self._trace_store.load_trace(path)
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            return error_response("trace.codegen", ErrorCode.INVALID_ARGUMENT,
+                                  str(exc), session_id=sid, meta=self._meta(t, sid))
+        from fsq_mac.codegen import generate_shell_script
+        script = generate_shell_script(run)
+        return success_response("trace.codegen", data={
+            "script": script,
+            "trace_id": run.trace_id,
+            "step_count": len(run.steps),
+        }, session_id=sid, meta=self._meta(t, sid))
 
     # -- capture ------------------------------------------------------------
 

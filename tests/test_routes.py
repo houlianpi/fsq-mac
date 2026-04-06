@@ -55,6 +55,7 @@ _ALL_COMMANDS = [
     ("trace", "status"),
     ("trace", "replay"),
     ("trace", "viewer"),
+    ("trace", "codegen"),
     # capture
     ("capture", "screenshot"),
     ("capture", "ui-tree"),
@@ -70,6 +71,7 @@ _ALL_COMMANDS = [
     ("doctor", "all"),
     ("doctor", "permissions"),
     ("doctor", "backend"),
+    ("doctor", "plugins"),
 ]
 
 
@@ -116,6 +118,7 @@ def test_route_is_dispatched(domain, action):
     core.trace_status.return_value = resp
     core.trace_replay.return_value = resp
     core.trace_viewer.return_value = resp
+    core.trace_codegen.return_value = resp
     core.capture_screenshot.return_value = resp
     core.capture_ui_tree.return_value = resp
     core.window_current.return_value = resp

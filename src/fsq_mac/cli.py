@@ -150,6 +150,9 @@ def _build_parser() -> argparse.ArgumentParser:
     trace_replay.add_argument("path", help="Trace directory or trace.json path")
     trace_viewer = ta.add_parser("viewer", help="Generate static viewer for a trace")
     trace_viewer.add_argument("path", help="Trace directory or trace.json path")
+    tcodegen = ta.add_parser("codegen", help="Generate shell script from trace")
+    tcodegen.add_argument("path", help="Trace directory or trace.json path")
+    tcodegen.add_argument("--output", "-o", help="Output file (default: stdout)")
 
     # -- capture --
     cap = sub.add_parser("capture", help="Capture screen or UI tree")
@@ -176,6 +179,7 @@ def _build_parser() -> argparse.ArgumentParser:
     da = doc.add_subparsers(dest="action")
     da.add_parser("permissions", help="Check Accessibility permissions")
     da.add_parser("backend", help="Check Appium server and Mac2 driver")
+    da.add_parser("plugins", help="List discovered plugins")
 
     return p
 
@@ -250,7 +254,7 @@ def _run(args: argparse.Namespace) -> dict:
             params["path"] = args.path
 
     elif domain == "trace":
-        if action in ("start", "replay", "viewer") and getattr(args, "path", None):
+        if action in ("start", "replay", "viewer", "codegen") and getattr(args, "path", None):
             params["path"] = args.path
 
     elif domain == "capture":
@@ -303,7 +307,23 @@ def main(argv: list[str] | None = None) -> None:
         logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
 
     result = _run(args)
-    print(output(result, pretty=args.pretty))
+
+    # trace codegen: write script to file or stdout
+    if args.domain == "trace" and getattr(args, "action", None) == "codegen":
+        if result.get("ok") and result.get("data", {}).get("script"):
+            output_file = getattr(args, "output", None)
+            if output_file:
+                import os
+                with open(output_file, "w") as f:
+                    f.write(result["data"]["script"])
+                os.chmod(output_file, 0o755)
+                print(f"Script written to {output_file}")
+            else:
+                print(result["data"]["script"])
+        else:
+            print(output(result, pretty=args.pretty))
+    else:
+        print(output(result, pretty=args.pretty))
 
     if not result.get("ok", True):
         sys.exit(1)

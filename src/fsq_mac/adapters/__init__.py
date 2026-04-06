@@ -40,3 +40,17 @@ def _appium_mac2_factory(config: dict):
 
 
 register_adapter("appium_mac2", _appium_mac2_factory)
+
+
+def _discover_entry_points():
+    """Load adapters from 'fsq_mac.adapters' entry point group."""
+    from importlib.metadata import entry_points
+    eps = entry_points(group="fsq_mac.adapters")
+    for ep in eps:
+        if ep.name not in _REGISTRY:
+            try:
+                register_adapter(ep.name, ep.load())
+            except Exception:
+                pass  # skip broken plugins silently
+
+_discover_entry_points()

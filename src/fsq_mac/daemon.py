@@ -19,7 +19,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from fsq_mac.core import AutomationCore, check_safety
-from fsq_mac.models import ErrorCode, TraceArtifacts, error_response
+from fsq_mac.models import ErrorCode, TraceArtifacts, error_response, success_response
 from fsq_mac.session import SessionManager
 
 logger = logging.getLogger("mac-cli.daemon")
@@ -356,6 +356,8 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
             return core.trace_replay(body.get("path", ""), sid)
         if action == "viewer":
             return core.trace_viewer(body.get("path", ""), sid)
+        if action == "codegen":
+            return core.trace_codegen(body.get("path"), sid)
 
     # -- capture --
     if domain == "capture":
@@ -399,6 +401,9 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
             return run_checks(core, "permissions")
         if action == "backend":
             return run_checks(core, "backend")
+        if action == "plugins":
+            from fsq_mac.doctor import check_plugins
+            return success_response("doctor.plugins", check_plugins())
 
     return error_response(f"{domain}.{action}", ErrorCode.INVALID_ARGUMENT,
                           f"Unknown command: {domain} {action}")

@@ -15,6 +15,11 @@ dependencies = [
 [project.scripts]
 mac = "fsq_mac.cli:main"
 
+[project.entry-points."fsq_mac.adapters"]
+appium_mac2 = "fsq_mac.adapters.appium_mac2:AppiumMac2Adapter"
+
+[project.entry-points."fsq_mac.doctor"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

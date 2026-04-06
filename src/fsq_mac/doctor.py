@@ -135,6 +135,29 @@ def _check_xcode_first_launch() -> dict:
         }
 
 
+def _discover_doctor_plugins():
+    """Load doctor checks from 'fsq_mac.doctor' entry point group."""
+    from importlib.metadata import entry_points
+    eps = entry_points(group="fsq_mac.doctor")
+    plugins = []
+    for ep in eps:
+        try:
+            plugins.append({"name": ep.name, "check": ep.load()})
+        except Exception:
+            pass
+    return plugins
+
+
+def check_plugins(config=None):
+    """List all discovered plugins (adapters and doctor checks)."""
+    from fsq_mac.adapters import available_backends
+    doctor_plugins = _discover_doctor_plugins()
+    return {
+        "adapters": available_backends(),
+        "doctor_plugins": [p["name"] for p in doctor_plugins],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------

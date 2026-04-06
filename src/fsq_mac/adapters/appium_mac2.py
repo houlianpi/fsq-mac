@@ -244,6 +244,22 @@ class AppiumMac2Adapter:
         self._delay_post_action: float = config.get("delay_post_action", 0)
         self._delay_pre_input: float = config.get("delay_pre_input", 0)
         self._delay_double_click_gap: float = config.get("delay_double_click_gap", 0)
+        # Tree cache
+        self._tree_cache: str | None = None
+        self._tree_cache_time: float = 0.0
+        self._tree_ttl: float = config.get("tree_cache_ttl", 2.0)
+
+    def _get_page_source(self, force_refresh: bool = False) -> str:
+        """Return page source, using cache if within TTL."""
+        now = time.monotonic()
+        if (not force_refresh
+                and self._tree_cache is not None
+                and self._tree_ttl > 0
+                and (now - self._tree_cache_time) < self._tree_ttl):
+            return self._tree_cache
+        self._tree_cache = self._driver.page_source
+        self._tree_cache_time = now
+        return self._tree_cache
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -496,6 +512,7 @@ class AppiumMac2Adapter:
             options = Mac2Options().load_capabilities(cfg)
             self._driver = webdriver.Remote(self._server_url, options=options)
             self._invalidate_refs()
+            self._tree_cache = None
             return self._frontmost_info()
         except Exception as exc:
             return {"error_code": ErrorCode.BACKEND_UNAVAILABLE, "detail": str(exc)}
@@ -531,6 +548,7 @@ class AppiumMac2Adapter:
                 info["name"] = result.stdout.strip()
         except Exception:
             pass
+        self._tree_cache = None
         return info
 
     def app_terminate(self, bundle_id: str) -> dict:
@@ -550,6 +568,7 @@ class AppiumMac2Adapter:
                 capture_output=True, text=True, timeout=10, check=False,
             )
         self._invalidate_refs()
+        self._tree_cache = None
         return {"terminated": bundle_id}
 
     def app_current(self) -> dict:
@@ -635,7 +654,7 @@ class AppiumMac2Adapter:
 
     def inspect(self, max_elements: int = 200) -> list[dict]:
         self._invalidate_refs()
-        source = self._driver.page_source
+        source = self._get_page_source()
         elements = parse_ui_tree(source, max_elements=max_elements)
         # Bind refs by document-order index
         try:
@@ -703,6 +722,7 @@ class AppiumMac2Adapter:
                 return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
+        self._tree_cache = None
         return {}
 
     def right_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
@@ -784,6 +804,7 @@ class AppiumMac2Adapter:
         except Exception:
             result["verified"] = None  # verification not possible
         self._invalidate_refs()
+        self._tree_cache = None
         return result
 
     def scroll(self, ref: str | LocatorQuery, direction: str = "down", strategy: str = "accessibility_id") -> dict:
@@ -795,6 +816,7 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         self._invalidate_refs()
+        self._tree_cache = None
         return {}
 
     def drag(self, source_ref: str | LocatorQuery, target_ref: str | LocatorQuery, strategy: str = "accessibility_id") -> dict:
@@ -815,6 +837,7 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         self._invalidate_refs()
+        self._tree_cache = None
         return {}
 
     # -- input operations ---------------------------------------------------
@@ -956,6 +979,7 @@ class AppiumMac2Adapter:
             if result.returncode != 0:
                 return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": result.stderr.strip() or "menu click failed"}
             self._invalidate_refs()
+            self._tree_cache = None
             return {}
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
@@ -1007,7 +1031,7 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
 
     def ui_tree(self) -> str:
-        source = self._driver.page_source
+        source = self._get_page_source()
         return simplify_page_source(source)
 
     # -- window -------------------------------------------------------------
