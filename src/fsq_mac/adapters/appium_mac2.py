@@ -738,6 +738,7 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
+        self._tree_cache = None
         return {}
 
     def double_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
@@ -759,6 +760,7 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
+        self._tree_cache = None
         return {}
 
     def hover(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
@@ -852,6 +854,7 @@ class AppiumMac2Adapter:
             self._driver.execute_script("macos: keys", {"keys": [mapped]})
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        self._tree_cache = None
         return {}
 
     def input_hotkey(self, combo: str) -> dict:
@@ -880,6 +883,7 @@ class AppiumMac2Adapter:
             self._driver.execute_script("macos: keys", {"keys": [{"key": mapped, "modifierFlags": flags}]})
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        self._tree_cache = None
         return {}
 
     def input_text(self, text: str) -> dict:
@@ -888,6 +892,7 @@ class AppiumMac2Adapter:
             self._driver.execute_script("macos: keys", {"keys": list(text)})
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        self._tree_cache = None
         return {}
 
     def input_click_at(self, x: int, y: int) -> dict:
@@ -904,6 +909,7 @@ class AppiumMac2Adapter:
             if result.returncode != 0:
                 return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": result.stderr.strip() or "click-at failed"}
             self._invalidate_refs()
+            self._tree_cache = None
             return {}
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -106,3 +106,66 @@ def test_force_refresh_bypasses_cache(adapter, mock_driver):
     adapter._get_page_source()
     adapter._get_page_source(force_refresh=True)
     assert mock_driver._page_source_mock.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Cache invalidation for previously-missing methods
+# ---------------------------------------------------------------------------
+
+def _prep_click_adapter(adapter):
+    """Prepare adapter mocks so click-style methods succeed."""
+    adapter._invalidate_refs = MagicMock()
+    mock_el = MagicMock()
+    mock_el.location = {"x": 10, "y": 10}
+    mock_el.size = {"width": 20, "height": 20}
+    adapter._resolve_ref = MagicMock(return_value=(mock_el, None))
+    adapter._wait_for_actionable = MagicMock(return_value=None)
+    return mock_el
+
+
+def test_cache_invalidated_after_right_click(adapter):
+    """right_click() should invalidate the tree cache."""
+    adapter._tree_cache = "cached"
+    _prep_click_adapter(adapter)
+    with patch("fsq_mac.adapters.appium_mac2.ActionChains"):
+        adapter.right_click("e0")
+    assert adapter._tree_cache is None
+
+
+def test_cache_invalidated_after_double_click(adapter):
+    """double_click() should invalidate the tree cache."""
+    adapter._tree_cache = "cached"
+    _prep_click_adapter(adapter)
+    adapter.double_click("e0")
+    assert adapter._tree_cache is None
+
+
+def test_cache_invalidated_after_input_key(adapter):
+    """input_key() should invalidate the tree cache."""
+    adapter._tree_cache = "cached"
+    adapter.input_key("return")
+    assert adapter._tree_cache is None
+
+
+def test_cache_invalidated_after_input_hotkey(adapter):
+    """input_hotkey() should invalidate the tree cache."""
+    adapter._tree_cache = "cached"
+    adapter.input_hotkey("command+c")
+    assert adapter._tree_cache is None
+
+
+def test_cache_invalidated_after_input_text(adapter):
+    """input_text() should invalidate the tree cache."""
+    adapter._tree_cache = "cached"
+    adapter.input_text("hello")
+    assert adapter._tree_cache is None
+
+
+def test_cache_invalidated_after_input_click_at(adapter):
+    """input_click_at() should invalidate the tree cache."""
+    adapter._tree_cache = "cached"
+    adapter._invalidate_refs = MagicMock()
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        adapter.input_click_at(100, 200)
+    assert adapter._tree_cache is None

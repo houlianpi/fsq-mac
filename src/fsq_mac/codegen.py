@@ -51,10 +51,10 @@ def _emit_step(command: str, args: dict[str, Any], locator_query: dict[str, Any]
         return f"mac element double-click {loc}".strip()
     if command == "element.type":
         text = shlex.quote(str(args.get("text", "")))
-        return f"mac element type --text {text} {loc}".strip()
+        return f"mac element type {text} {loc}".strip()
     if command == "element.scroll":
         direction = shlex.quote(str(args.get("direction", "down")))
-        return f"mac element scroll --direction {direction} {loc}".strip()
+        return f"mac element scroll {direction} {loc}".strip()
     if command == "element.hover":
         return f"mac element hover {loc}".strip()
     if command == "element.drag":
@@ -77,11 +77,11 @@ def _emit_step(command: str, args: dict[str, Any], locator_query: dict[str, Any]
     if command == "input.click-at":
         x = shlex.quote(str(args.get("x", 0)))
         y = shlex.quote(str(args.get("y", 0)))
-        return f"mac input click-at --x {x} --y {y}"
+        return f"mac input click-at {x} {y}"
 
     # -- menu --
     if command == "menu.click":
-        return f"mac menu click --path {shlex.quote(str(args.get('path', '')))}"
+        return f"mac menu click {shlex.quote(str(args.get('path', '')))}"
 
     # -- assert --
     if command == "assert.visible":
@@ -90,26 +90,36 @@ def _emit_step(command: str, args: dict[str, Any], locator_query: dict[str, Any]
         return f"mac assert enabled {loc}".strip()
     if command == "assert.text":
         expected = shlex.quote(str(args.get("expected", "")))
-        return f"mac assert text --expected {expected} {loc}".strip()
+        return f"mac assert text {expected} {loc}".strip()
     if command == "assert.value":
         expected = shlex.quote(str(args.get("expected", "")))
-        return f"mac assert value --expected {expected} {loc}".strip()
+        return f"mac assert value {expected} {loc}".strip()
 
     # -- wait --
     if command == "wait.element":
-        parts = [f"mac wait element {loc}".strip()]
+        locator_val = args.get("locator", "")
+        if not locator_val and loc:
+            # Derive a locator value from locator_query for the positional arg
+            for k in _LOCATOR_KEYS:
+                v = locator_query.get(k)
+                if v is not None:
+                    locator_val = str(v)
+                    break
+        parts = [f"mac wait element {shlex.quote(str(locator_val))}"]
+        if loc:
+            parts.append(loc)
         if args.get("timeout") is not None:
             parts.append(f"--timeout {shlex.quote(str(args['timeout']))}")
         return " ".join(parts)
     if command == "wait.window":
         title = shlex.quote(str(args.get("title", "")))
-        parts = [f"mac wait window --title {title}"]
+        parts = [f"mac wait window {title}"]
         if args.get("timeout") is not None:
             parts.append(f"--timeout {shlex.quote(str(args['timeout']))}")
         return " ".join(parts)
     if command == "wait.app":
         bundle_id = shlex.quote(str(args.get("bundle_id", "")))
-        parts = [f"mac wait app --bundle-id {bundle_id}"]
+        parts = [f"mac wait app {bundle_id}"]
         if args.get("timeout") is not None:
             parts.append(f"--timeout {shlex.quote(str(args['timeout']))}")
         return " ".join(parts)

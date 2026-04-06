@@ -56,8 +56,10 @@ def test_generate_shell_script_quotes_args():
         ),
     ])
     script = generate_shell_script(run)
+    # text is a positional arg: mac element type 'hello world' --name 'My Field'
     assert "'hello world'" in script
     assert "'My Field'" in script
+    assert "mac element type 'hello world'" in script
 
 
 def test_generate_shell_script_unknown_command():
@@ -139,3 +141,87 @@ def test_core_trace_codegen_returns_success(tmp_path):
     assert result["data"]["trace_id"] == run.trace_id
     assert result["data"]["step_count"] == 1
     assert "mac element click" in result["data"]["script"]
+
+
+# ---------------------------------------------------------------------------
+# CLI positional-arg syntax verification
+# ---------------------------------------------------------------------------
+
+def test_codegen_element_type_positional():
+    """element.type: text is a positional arg, not --text."""
+    run = _make_run([TraceStep(index=1, command="element.type", args={"text": "hi"})])
+    script = generate_shell_script(run)
+    assert "mac element type hi" in script
+    assert "--text" not in script
+
+
+def test_codegen_element_scroll_positional():
+    """element.scroll: direction is a positional arg, not --direction."""
+    run = _make_run([TraceStep(index=1, command="element.scroll", args={"direction": "up"})])
+    script = generate_shell_script(run)
+    assert "mac element scroll up" in script
+    assert "--direction" not in script
+
+
+def test_codegen_menu_click_positional():
+    """menu.click: path is a positional arg, not --path."""
+    run = _make_run([TraceStep(index=1, command="menu.click", args={"path": "File > Open"})])
+    script = generate_shell_script(run)
+    assert "mac menu click" in script
+    assert "--path" not in script
+    assert "'File > Open'" in script
+
+
+def test_codegen_assert_text_positional():
+    """assert.text: expected is a positional arg, not --expected."""
+    run = _make_run([
+        TraceStep(index=1, command="assert.text", args={"expected": "Ready"}, locator_query={"name": "Status"}),
+    ])
+    script = generate_shell_script(run)
+    assert "mac assert text Ready" in script
+    assert "--expected" not in script
+
+
+def test_codegen_assert_value_positional():
+    """assert.value: expected is a positional arg, not --expected."""
+    run = _make_run([
+        TraceStep(index=1, command="assert.value", args={"expected": "100"}, locator_query={"name": "Slider"}),
+    ])
+    script = generate_shell_script(run)
+    assert "mac assert value 100" in script
+    assert "--expected" not in script
+
+
+def test_codegen_wait_element_positional():
+    """wait.element: locator is a positional arg; must not be missing."""
+    run = _make_run([
+        TraceStep(index=1, command="wait.element", args={"locator": "btn-ok"}, locator_query={"name": "OK"}),
+    ])
+    script = generate_shell_script(run)
+    assert "mac wait element btn-ok" in script
+
+
+def test_codegen_wait_window_positional():
+    """wait.window: title is a positional arg, not --title."""
+    run = _make_run([TraceStep(index=1, command="wait.window", args={"title": "My Window"})])
+    script = generate_shell_script(run)
+    assert "mac wait window" in script
+    assert "--title" not in script
+    assert "'My Window'" in script
+
+
+def test_codegen_wait_app_positional():
+    """wait.app: bundle_id is a positional arg, not --bundle-id."""
+    run = _make_run([TraceStep(index=1, command="wait.app", args={"bundle_id": "com.test"})])
+    script = generate_shell_script(run)
+    assert "mac wait app com.test" in script
+    assert "--bundle-id" not in script
+
+
+def test_codegen_input_click_at_positional():
+    """input.click-at: x y are positional args, not --x/--y."""
+    run = _make_run([TraceStep(index=1, command="input.click-at", args={"x": 100, "y": 200})])
+    script = generate_shell_script(run)
+    assert "mac input click-at 100 200" in script
+    assert "--x" not in script
+    assert "--y" not in script
