@@ -159,11 +159,13 @@ def error_response(
     suggested_next_action: str | None = None,
     doctor_hint: str | None = None,
     details: dict | None = None,
+    data: Any = None,
 ) -> Response:
     return Response(
         ok=False,
         command=command,
         session_id=session_id,
+        data=data,
         error=CLIError(
             code=code,
             message=message,

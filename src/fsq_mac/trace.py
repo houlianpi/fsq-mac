@@ -127,9 +127,8 @@ class TraceStore:
         manifest_path.write_text(json.dumps(run.to_dict(), indent=2, ensure_ascii=False))
         return run
 
-    def step_artifact_paths(self, trace_id: str, step_index: int) -> dict[str, str]:
-        trace_dir = self._trace_dir(trace_id)
-        steps_dir = trace_dir / "steps"
+    def step_artifact_paths_for_dir(self, trace_dir: str | Path, step_index: int) -> dict[str, str]:
+        steps_dir = Path(trace_dir) / "steps"
         prefix = f"{step_index:03d}"
         return {
             "before_screenshot": str(steps_dir / f"{prefix}-before.png"),

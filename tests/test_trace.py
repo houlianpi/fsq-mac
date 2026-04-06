@@ -46,7 +46,7 @@ def test_stop_trace_marks_manifest_stopped(tmp_path):
 def test_step_artifact_paths_are_numbered(tmp_path):
     store = TraceStore(tmp_path)
     run = store.start_trace()
-    paths = store.step_artifact_paths(run.trace_id, 1)
+    paths = store.step_artifact_paths_for_dir(str(tmp_path / run.trace_id), 1)
     assert paths["before_screenshot"].endswith("steps/001-before.png")
     assert paths["after_tree"].endswith("steps/001-after-tree.xml")
 
@@ -158,3 +158,14 @@ def test_start_trace_with_custom_path_does_not_change_store_root(tmp_path):
     assert run.output_dir == str(custom_trace)
     second = store.start_trace()
     assert second.output_dir.startswith(str(tmp_path / "root"))
+
+
+def test_custom_path_artifact_paths_land_in_custom_dir(tmp_path):
+    """step_artifact_paths_for_dir uses the real trace dir, not root/trace_id."""
+    store = TraceStore(tmp_path / "default-root")
+    custom_dir = tmp_path / "my-custom" / "my-trace"
+    run = store.start_trace(str(custom_dir))
+    paths = store.step_artifact_paths_for_dir(run.output_dir, 1)
+    for key in ("before_screenshot", "after_screenshot", "before_tree", "after_tree"):
+        assert paths[key].startswith(str(custom_dir)), f"{key} should be under custom dir"
+    assert "default-root" not in paths["before_screenshot"]

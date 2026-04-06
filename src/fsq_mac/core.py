@@ -142,9 +142,9 @@ class AutomationCore:
         return len(run.steps) + 1
 
     def trace_artifact_paths(self, step_index: int) -> dict[str, str]:
-        if not self._active_trace_id:
+        if not self._active_trace_path:
             return {}
-        return self._trace_store.step_artifact_paths(self._active_trace_id, step_index)
+        return self._trace_store.step_artifact_paths_for_dir(self._active_trace_path, step_index)
 
     def trace_capture_adapter(self, sid: str | None = None):
         return self._require_adapter("trace.capture", sid)
@@ -554,8 +554,15 @@ class AutomationCore:
             error = result.get("error", {})
             code_value = error.get("code", ErrorCode.INTERNAL_ERROR.value)
             code = ErrorCode(code_value)
+            data = {
+                "completed_steps": result.get("completed_steps", 0),
+                "trace_id": result.get("trace_id"),
+            }
+            failing_step = result.get("failing_step")
+            if failing_step:
+                data["failing_step"] = failing_step
             return error_response("trace.replay", code, error.get("message", "Replay failed"),
-                                  session_id=sid, meta=self._meta(t, sid))
+                                  session_id=sid, meta=self._meta(t, sid), data=data)
         return success_response("trace.replay", data=result,
                                 session_id=sid, meta=self._meta(t, sid))
 

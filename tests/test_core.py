@@ -339,6 +339,45 @@ class TestTraceOps:
         from fsq_mac.core import _SAFETY
         assert _SAFETY["trace.replay"] != SafetyLevel.SAFE
 
+    def test_trace_replay_failure_preserves_structured_context(self, core_with_session, tmp_path):
+        core, _ = core_with_session
+        trace_dir = tmp_path / "replay-test"
+        trace_dir.mkdir(parents=True)
+        (trace_dir / "steps").mkdir()
+        (trace_dir / "viewer").mkdir()
+        import json
+        (trace_dir / "trace.json").write_text(json.dumps({
+            "trace_id": "replay-test",
+            "output_dir": str(trace_dir),
+            "status": "stopped",
+            "steps": [
+                {"index": 1, "command": "app.launch", "args": {"bundle_id": "com.test"}, "replayable": True, "artifacts": {}},
+                {"index": 2, "command": "element.click", "args": {"role": "AXButton"}, "replayable": True, "artifacts": {}},
+            ],
+        }))
+
+        def _executor(command, args):
+            if command == "element.click":
+                return {"ok": False, "command": command, "error": {"code": "ELEMENT_NOT_FOUND", "message": "missing"}}
+            return {"ok": True, "command": command}
+
+        core.set_trace_replay_executor(_executor)
+        resp = core.trace_replay(str(trace_dir))
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.ELEMENT_NOT_FOUND
+        assert resp.data["completed_steps"] == 1
+        assert resp.data["failing_step"]["index"] == 2
+        assert resp.data["failing_step"]["command"] == "element.click"
+
+    def test_trace_custom_path_artifacts_in_correct_dir(self, core_with_session, tmp_path):
+        core, _ = core_with_session
+        custom_dir = tmp_path / "my-custom-trace"
+        resp = core.trace_start(str(custom_dir))
+        assert resp.ok is True
+        paths = core.trace_artifact_paths(1)
+        for key in ("before_screenshot", "after_screenshot", "before_tree", "after_tree"):
+            assert paths[key].startswith(str(custom_dir)), f"{key} should be under custom dir"
+
 
 class TestCaptureOps:
     def test_screenshot(self, core_with_session):
