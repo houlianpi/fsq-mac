@@ -91,6 +91,20 @@ GitHub Actions runs the repository test suite from `.github/workflows/ci.yml`.
 The CI test command is `uv run pytest tests/ --junitxml=test-results/junit.xml`.
 CI uploads `test-results/junit.xml` and any generated `artifacts/` directory as workflow artifacts.
 
+## Release
+
+Package publishing is handled by `.github/workflows/publish.yml`.
+Pushing a tag matching `v*` runs the full test matrix first, then builds the wheel and sdist, and finally publishes to PyPI via Trusted Publishing if all tests pass.
+
+See [docs/releasing.md](docs/releasing.md) for the full release procedure and PyPI Trusted Publishing setup.
+
+Example:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
 ## Development
 
 ```bash

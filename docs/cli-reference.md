@@ -66,8 +66,8 @@ All element commands accept locator flags: `--id`, `--role`, `--name`, `--label`
 | `mac element click` | Click an element | GUARDED |
 | `mac element right-click` | Right-click an element | GUARDED |
 | `mac element double-click` | Double-click an element | GUARDED |
-| `mac element type --text <text>` | Type text into an element | GUARDED |
-| `mac element scroll --direction <dir>` | Scroll an element | GUARDED |
+| `mac element type <text>` | Type text into an element | GUARDED |
+| `mac element scroll <dir>` | Scroll an element | GUARDED |
 | `mac element hover` | Hover over an element | GUARDED |
 | `mac element drag` | Drag an element | GUARDED |
 
@@ -75,8 +75,8 @@ All element commands accept locator flags: `--id`, `--role`, `--name`, `--label`
 mac element inspect --pretty
 mac element find --role AXButton
 mac element click --role AXButton --name OK
-mac element type --text "hello world" --role AXTextField
-mac element scroll --direction down --role AXScrollArea
+mac element type "hello world" --role AXTextField
+mac element scroll down --role AXScrollArea
 mac element right-click --name "File"
 ```
 
@@ -87,13 +87,13 @@ mac element right-click --name "File"
 | `mac input key <key>` | Press a single key | GUARDED |
 | `mac input hotkey <combo>` | Press a key combination | GUARDED |
 | `mac input text <text>` | Type text (no element target) | GUARDED |
-| `mac input click-at --x <x> --y <y>` | Click at screen coordinates | GUARDED |
+| `mac input click-at <x> <y>` | Click at screen coordinates | GUARDED |
 
 ```bash
 mac input key Return
 mac input hotkey cmd+c
 mac input text "hello world"
-mac input click-at --x 100 --y 200
+mac input click-at 100 200
 ```
 
 ## assert
@@ -104,25 +104,25 @@ All assert commands accept locator flags: `--id`, `--role`, `--name`, `--label`,
 |---------|-------------|--------|
 | `mac assert visible` | Assert element is visible | SAFE |
 | `mac assert enabled` | Assert element is enabled | SAFE |
-| `mac assert text --expected <text>` | Assert element text matches | SAFE |
-| `mac assert value --expected <value>` | Assert element value matches | SAFE |
+| `mac assert text <text>` | Assert element text matches | SAFE |
+| `mac assert value <value>` | Assert element value matches | SAFE |
 
 ```bash
 mac assert visible --role AXButton --name OK
 mac assert enabled --role AXTextField
-mac assert text --expected "Hello" --role AXStaticText
-mac assert value --expected "42" --role AXTextField
+mac assert text "Hello" --role AXStaticText
+mac assert value "42" --role AXTextField
 ```
 
 ## menu
 
 | Command | Description | Safety |
 |---------|-------------|--------|
-| `mac menu click --path <path>` | Click a menu item by path | GUARDED |
+| `mac menu click <path>` | Click a menu item by path | GUARDED |
 
 ```bash
-mac menu click --path "File > Open"
-mac menu click --path "Edit > Copy"
+mac menu click "File > Open"
+mac menu click "Edit > Copy"
 ```
 
 ## trace

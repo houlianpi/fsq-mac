@@ -32,6 +32,10 @@ cd fsq-mac
 uv sync
 ```
 
+After installation, the CLI is available as `mac`.
+
+If you are running directly from the source checkout without installing the package, use `uv run mac ...` as a temporary alternative.
+
 ## Your first session
 
 ### 1. Start Appium server
@@ -77,7 +81,7 @@ mac element find --role AXButton --name OK
 mac element click --role AXButton --name OK
 
 # Type text into a field
-mac element type --text "hello world" --role AXTextField
+mac element type "hello world" --role AXTextField
 
 # Press a key
 mac input key Return
@@ -165,3 +169,4 @@ mac element inspect --pretty
 - [Architecture](architecture.md) -- how fsq-mac works internally
 - [Trace & Codegen Guide](trace-codegen.md) -- detailed trace and codegen workflows
 - [Plugin Development](plugins.md) -- extend fsq-mac with custom backends
+- [Releasing](releasing.md) -- PyPI publishing and release workflow

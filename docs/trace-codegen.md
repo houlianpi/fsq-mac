@@ -175,13 +175,13 @@ mac session end
 | `app.activate` | `mac app activate <bundle_id>` |
 | `app.terminate` | `mac app terminate <bundle_id> --allow-dangerous` |
 | `element.click` | `mac element click` + locator flags |
-| `element.type` | `mac element type --text <text>` + locator flags |
-| `element.scroll` | `mac element scroll --direction <dir>` + locator flags |
+| `element.type` | `mac element type <text>` + locator flags |
+| `element.scroll` | `mac element scroll <dir>` + locator flags |
 | `input.key` | `mac input key <key>` |
 | `input.hotkey` | `mac input hotkey <combo>` |
 | `input.text` | `mac input text <text>` |
-| `input.click-at` | `mac input click-at --x <x> --y <y>` |
-| `menu.click` | `mac menu click --path <path>` |
+| `input.click-at` | `mac input click-at <x> <y>` |
+| `menu.click` | `mac menu click <path>` |
 | `assert.*` | `mac assert <action>` + flags |
 | `wait.*` | `mac wait <action>` + flags |
 
