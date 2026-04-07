@@ -11,9 +11,9 @@ Agent-first macOS automation CLI for native app automation.
 
 ## Why fsq-mac
 
-- Structured, agent-friendly CLI for macOS native app automation.
-- Daemon-backed execution with explicit session management and safety gating.
-- Advanced workflows including trace capture, replay, code generation, and plugin extensibility.
+- Built for agent workflows: structured output, explicit sessions, and stable command surfaces instead of ad-hoc scripting glue.
+- More replayable than AppleScript, Hammerspoon, or coordinate-driven tools because it records locator-based UI actions, traces, and generated shell scripts.
+- More operationally predictable than one-off local scripts because daemon lifecycle, safety gating, trace capture, replay, code generation, and plugin discovery are part of the product.
 
 Demo screenshots and GIF guidance live in [docs/assets/README.md](docs/assets/README.md).
 
@@ -95,7 +95,7 @@ For repository screenshots and short GIF demos, see [docs/assets/README.md](docs
 - macOS
 - Python 3.10+
 - [Appium](https://appium.io/)
-- [appium-mac2-driver](https://github.com/nicedoc/appium-mac2-driver)
+- [appium-mac2-driver](https://github.com/appium/appium-mac2-driver)
 - Accessibility permissions granted to the terminal or host process running `mac`
 
 ## Documentation
@@ -103,11 +103,13 @@ For repository screenshots and short GIF demos, see [docs/assets/README.md](docs
 - [Quickstart](docs/quickstart.md)
 - [CLI Reference](docs/cli-reference.md)
 - [Architecture](docs/architecture.md)
+- [Trace & Codegen Guide](docs/trace-codegen.md)
 - [Plugins](docs/plugins.md)
 - [Manual E2E Test Plan](docs/testing/manual-e2e-test-plan.md)
 - [Releasing](docs/releasing.md)
 - [Changelog](CHANGELOG.md)
 - [Demo Assets Guide](docs/assets/README.md)
+- [Demo Recording Plan](docs/assets/demo-recording-plan.md)
 
 ## Development
 
