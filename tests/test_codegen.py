@@ -225,3 +225,65 @@ def test_codegen_input_click_at_positional():
     assert "mac input click-at 100 200" in script
     assert "--x" not in script
     assert "--y" not in script
+
+
+# ---------------------------------------------------------------------------
+# Issue #2: app.current / window.current should emit valid CLI commands
+# ---------------------------------------------------------------------------
+
+def test_codegen_app_current():
+    """app.current should emit 'mac app current', not a TODO comment."""
+    run = _make_run([TraceStep(index=1, command="app.current")])
+    script = generate_shell_script(run)
+    assert "mac app current" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_window_current():
+    """window.current should emit 'mac window current', not a TODO comment."""
+    run = _make_run([TraceStep(index=1, command="window.current")])
+    script = generate_shell_script(run)
+    assert "mac window current" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_app_list():
+    run = _make_run([TraceStep(index=1, command="app.list")])
+    script = generate_shell_script(run)
+    assert "mac app list" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_window_list():
+    run = _make_run([TraceStep(index=1, command="window.list")])
+    script = generate_shell_script(run)
+    assert "mac window list" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_element_inspect():
+    run = _make_run([TraceStep(index=1, command="element.inspect")])
+    script = generate_shell_script(run)
+    assert "mac element inspect" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_capture_ui_tree():
+    run = _make_run([TraceStep(index=1, command="capture.ui-tree")])
+    script = generate_shell_script(run)
+    assert "mac capture ui-tree" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_capture_screenshot():
+    run = _make_run([TraceStep(index=1, command="capture.screenshot", args={"path": "/tmp/shot.png"})])
+    script = generate_shell_script(run)
+    assert "mac capture screenshot /tmp/shot.png" in script
+    assert "# TODO" not in script
+
+
+def test_codegen_window_focus():
+    run = _make_run([TraceStep(index=1, command="window.focus", args={"index": 2})])
+    script = generate_shell_script(run)
+    assert "mac window focus 2" in script
+    assert "# TODO" not in script

@@ -41,6 +41,10 @@ def _emit_step(command: str, args: dict[str, Any], locator_query: dict[str, Any]
         return f"mac app activate {shlex.quote(str(args.get('bundle_id', '')))}"
     if command == "app.terminate":
         return f"mac app terminate {shlex.quote(str(args.get('bundle_id', '')))} --allow-dangerous"
+    if command == "app.current":
+        return "mac app current"
+    if command == "app.list":
+        return "mac app list"
 
     # -- element --
     if command == "element.click":
@@ -82,6 +86,25 @@ def _emit_step(command: str, args: dict[str, Any], locator_query: dict[str, Any]
     # -- menu --
     if command == "menu.click":
         return f"mac menu click {shlex.quote(str(args.get('path', '')))}"
+
+    # -- window --
+    if command == "window.current":
+        return "mac window current"
+    if command == "window.list":
+        return "mac window list"
+    if command == "window.focus":
+        return f"mac window focus {shlex.quote(str(args.get('index', 0)))}"
+
+    # -- capture --
+    if command == "capture.screenshot":
+        path = args.get("path", "./screenshot.png")
+        return f"mac capture screenshot {shlex.quote(str(path))}"
+    if command == "capture.ui-tree":
+        return "mac capture ui-tree"
+
+    # -- element (read-only) --
+    if command == "element.inspect":
+        return "mac element inspect"
 
     # -- assert --
     if command == "assert.visible":

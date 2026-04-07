@@ -293,7 +293,13 @@ class AutomationCore:
         adapter, active, err = self._require_adapter("element.inspect", sid)
         if err:
             return err
-        elements = adapter.inspect()
+        try:
+            elements = adapter.inspect()
+        except RuntimeError as exc:
+            return error_response("element.inspect", ErrorCode.BACKEND_UNAVAILABLE,
+                                  str(exc),
+                                  suggested_next_action="mac app launch <bundle_id>",
+                                  session_id=active, meta=self._meta(t, active))
         return success_response("element.inspect", data={
             "elements": elements,
             "note": "Element refs (e0, e1, ...) are scoped to this result. A new find or inspect invalidates previous refs.",
@@ -624,7 +630,13 @@ class AutomationCore:
         adapter, active, err = self._require_adapter("capture.ui-tree", sid)
         if err:
             return err
-        tree = adapter.ui_tree()
+        try:
+            tree = adapter.ui_tree()
+        except RuntimeError as exc:
+            return error_response("capture.ui-tree", ErrorCode.BACKEND_UNAVAILABLE,
+                                  str(exc),
+                                  suggested_next_action="mac app launch <bundle_id>",
+                                  session_id=active, meta=self._meta(t, active))
         return success_response("capture.ui-tree", data={"ui_tree": tree},
                                 session_id=active, meta=self._meta(t, active))
 
