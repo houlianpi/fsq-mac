@@ -1,6 +1,6 @@
 [project]
 name = "fsq-mac"
-version = "0.1.1"
+version = "0.2.0"
 description = "Agent-first macOS automation CLI"
 requires-python = ">=3.10"
 dependencies = [

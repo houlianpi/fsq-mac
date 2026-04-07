@@ -6,6 +6,24 @@ The format is based on Keep a Changelog and the project follows semantic version
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-07
+
+### Added
+
+- Bounded stabilization polling for app launch, app activation, and window focus flows.
+- Additional regression tests covering timing-sensitive app and window transitions.
+- Manual timing-stability coverage in the end-to-end test plan.
+
+### Changed
+
+- `app_launch()`, `app_activate()`, and `window_focus()` now wait for observable UI state convergence before returning success.
+- `wait_app()` and `wait_window()` keep existence-based semantics while using the unified polling path.
+
+### Fixed
+
+- Mapped page source timeout failures to `TIMEOUT` instead of backend-unavailable errors.
+- Prevented inspect and related tree operations from hanging indefinitely when the backend becomes unresponsive.
+
 ### Added
 
 - Trace recording, replay, static viewer generation, and shell script code generation workflows.
