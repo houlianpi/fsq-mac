@@ -5,6 +5,7 @@ This document describes how `fsq-mac` is published to PyPI.
 ## Overview
 
 Publishing is automated by [publish.yml](../.github/workflows/publish.yml).
+GitHub release notes can be generated using the category configuration in [release.yml](../.github/release.yml).
 
 Release flow:
 
@@ -84,6 +85,12 @@ After the workflow completes:
 uv pip install fsq-mac
 mac --version
 ```
+
+Create or update the GitHub Release entry for the tag and summarize:
+
+- what changed
+- upgrade notes
+- install and verification notes
 
 ## Common Failure Modes
 
