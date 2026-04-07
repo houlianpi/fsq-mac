@@ -244,10 +244,40 @@ class AppiumMac2Adapter:
         self._delay_post_action: float = config.get("delay_post_action", 0)
         self._delay_pre_input: float = config.get("delay_pre_input", 0)
         self._delay_double_click_gap: float = config.get("delay_double_click_gap", 0)
+        # Command timeout — caps any single driver call (find, click, etc.)
+        self._command_timeout: float = config.get("command_timeout", 15.0)
         # Tree cache
         self._tree_cache: str | None = None
         self._tree_cache_time: float = 0.0
         self._tree_ttl: float = config.get("tree_cache_ttl", 2.0)
+
+    def _run_with_timeout(self, fn, timeout: float | None = None):
+        """Run *fn* in a thread; raise TimeoutError if it exceeds *timeout*."""
+        timeout = timeout or self._command_timeout
+        result_box: list = []
+        error_box: list = []
+
+        def _target():
+            try:
+                result_box.append(fn())
+            except Exception as exc:
+                error_box.append(exc)
+
+        t = threading.Thread(target=_target, daemon=True)
+        t.start()
+        t.join(timeout)
+        if t.is_alive():
+            raise TimeoutError(
+                f"Driver operation timed out after {timeout}s"
+            )
+        if error_box:
+            raise error_box[0]
+        return result_box[0] if result_box else None
+
+    def _configure_driver_timeouts(self) -> None:
+        """Set Selenium implicit wait on the current driver."""
+        if self._driver:
+            self._driver.implicitly_wait(self._command_timeout)
 
     def _get_page_source(self, force_refresh: bool = False) -> str:
         """Return page source, using cache if within TTL."""
@@ -275,6 +305,7 @@ class AppiumMac2Adapter:
             caps["bundleId"] = bundle_id
         options = Mac2Options().load_capabilities(caps)
         self._driver = webdriver.Remote(self._server_url, options=options)
+        self._configure_driver_timeouts()
 
     @property
     def connected(self) -> bool:
@@ -398,10 +429,14 @@ class AppiumMac2Adapter:
             return (el, None) if el is not None else (None, ErrorCode.ELEMENT_NOT_FOUND)
         if query.role or query.name:
             try:
-                candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
+                def _find_by_role_name():
+                    candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
+                    return [el for el in candidates if self._matches_query(el, query)]
+                matches = self._run_with_timeout(_find_by_role_name)
+            except TimeoutError:
+                return None, ErrorCode.TIMEOUT
             except Exception:
-                candidates = []
-            matches = [el for el in candidates if self._matches_query(el, query)]
+                matches = []
             if not matches:
                 return None, ErrorCode.ELEMENT_NOT_FOUND
             if len(matches) > 1:
@@ -409,10 +444,14 @@ class AppiumMac2Adapter:
             return matches[0], None
         if query.label:
             try:
-                candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
+                def _find_by_label():
+                    candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
+                    return [el for el in candidates if self._matches_query(el, query)]
+                matches = self._run_with_timeout(_find_by_label)
+            except TimeoutError:
+                return None, ErrorCode.TIMEOUT
             except Exception:
-                candidates = []
-            matches = [el for el in candidates if self._matches_query(el, query)]
+                matches = []
             if not matches:
                 return None, ErrorCode.ELEMENT_NOT_FOUND
             if len(matches) > 1:
@@ -516,6 +555,7 @@ class AppiumMac2Adapter:
             cfg.pop("server_url", None)
             options = Mac2Options().load_capabilities(cfg)
             self._driver = webdriver.Remote(self._server_url, options=options)
+            self._configure_driver_timeouts()
             self._invalidate_refs()
             self._tree_cache = None
             return self._frontmost_info()
@@ -719,10 +759,16 @@ class AppiumMac2Adapter:
         if wait_error:
             return wait_error
         try:
-            ActionChains(self._driver).move_to_element(el).click().perform()
+            self._run_with_timeout(
+                lambda: ActionChains(self._driver).move_to_element(el).click().perform()
+            )
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception:
             try:
-                el.click()
+                self._run_with_timeout(lambda: el.click())
+            except TimeoutError as exc:
+                return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
             except Exception as exc:
                 return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
@@ -738,7 +784,11 @@ class AppiumMac2Adapter:
         if wait_error:
             return wait_error
         try:
-            ActionChains(self._driver).context_click(el).perform()
+            self._run_with_timeout(
+                lambda: ActionChains(self._driver).context_click(el).perform()
+            )
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
@@ -754,13 +804,17 @@ class AppiumMac2Adapter:
         if wait_error:
             return wait_error
         try:
-            loc = el.location
-            sz = el.size
-            x = loc["x"] + sz["width"] / 2
-            y = loc["y"] + sz["height"] / 2
-            self._driver.tap([(x, y)])
-            time.sleep(self._delay_double_click_gap)
-            self._driver.tap([(x, y)])
+            def _do_double_click():
+                loc = el.location
+                sz = el.size
+                x = loc["x"] + sz["width"] / 2
+                y = loc["y"] + sz["height"] / 2
+                self._driver.tap([(x, y)])
+                time.sleep(self._delay_double_click_gap)
+                self._driver.tap([(x, y)])
+            self._run_with_timeout(_do_double_click)
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
@@ -776,9 +830,13 @@ class AppiumMac2Adapter:
         if wait_error:
             return wait_error
         try:
-            ActionChains(self._driver).move_to_element(el).perform()
+            self._run_with_timeout(
+                lambda: ActionChains(self._driver).move_to_element(el).perform()
+            )
             if duration > 0:
                 time.sleep(duration)
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         return {}
@@ -791,13 +849,17 @@ class AppiumMac2Adapter:
         if wait_error:
             return wait_error
         try:
-            el.click()
-            el.clear()
-            try:
-                el.send_keys(text)
-            except Exception:
-                # Fallback to macos: keys only when send_keys fails (#9)
-                self._driver.execute_script("macos: keys", {"keys": list(text)})
+            def _do_type():
+                el.click()
+                el.clear()
+                try:
+                    el.send_keys(text)
+                except Exception:
+                    # Fallback to macos: keys only when send_keys fails (#9)
+                    self._driver.execute_script("macos: keys", {"keys": list(text)})
+            self._run_with_timeout(_do_type)
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         # Verify the typed value
@@ -840,7 +902,11 @@ class AppiumMac2Adapter:
         if wait_error:
             return wait_error
         try:
-            ActionChains(self._driver).drag_and_drop(src, tgt).perform()
+            self._run_with_timeout(
+                lambda: ActionChains(self._driver).drag_and_drop(src, tgt).perform()
+            )
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         self._invalidate_refs()
