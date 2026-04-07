@@ -327,6 +327,18 @@ class TestTraceOps:
         assert stopped.ok is True
         assert stopped.data["active"] is False
 
+    def test_trace_start_persists_frontmost_app(self, core_with_session, tmp_path):
+        core, _ = core_with_session
+        session_id = core._sm.active_id()
+        assert session_id is not None
+        core._sm.update_state(session_id, frontmost_app="com.apple.calculator")
+
+        resp = core.trace_start(str(tmp_path / "trace-out"), sid=session_id)
+        assert resp.ok is True
+
+        trace = core._trace_store.load_trace(str(tmp_path / "trace-out"))
+        assert trace.frontmost_app == "com.apple.calculator"
+
     def test_trace_replay_missing_path_returns_error(self, core_with_session):
         core, _ = core_with_session
         resp = core.trace_replay("/tmp/does-not-exist")

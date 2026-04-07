@@ -288,6 +288,7 @@ class TraceRun:
     created_at: str = ""
     backend: str = "appium_mac2"
     session_id: str | None = None
+    frontmost_app: str | None = None
     status: str = "recording"
     steps: list[TraceStep] = field(default_factory=list)
 
@@ -298,6 +299,7 @@ class TraceRun:
             "created_at": self.created_at,
             "backend": self.backend,
             "session_id": self.session_id,
+            "frontmost_app": self.frontmost_app,
             "status": self.status,
             "steps": [step.to_dict() for step in self.steps],
         }

@@ -21,6 +21,25 @@ def _make_run(steps: list[TraceStep] | None = None) -> TraceRun:
     )
 
 
+def test_generate_shell_script_includes_frontmost_app_bootstrap():
+    run = TraceRun(
+        trace_id="test-trace",
+        output_dir="/tmp/test-trace",
+        frontmost_app="com.apple.calculator",
+        steps=[
+            TraceStep(
+                index=1,
+                command="element.click",
+                locator_query={"role": "AXButton", "name": "OK"},
+            ),
+        ],
+    )
+    script = generate_shell_script(run)
+    assert "mac session start" in script
+    assert "mac app launch com.apple.calculator" in script
+    assert script.index("mac app launch com.apple.calculator") < script.index("mac element click")
+
+
 def test_generate_shell_script_basic():
     run = _make_run([
         TraceStep(

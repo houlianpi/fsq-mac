@@ -59,6 +59,7 @@ class TraceStore:
             created_at=data.get("created_at", ""),
             backend=data.get("backend", "appium_mac2"),
             session_id=data.get("session_id"),
+            frontmost_app=data.get("frontmost_app"),
             status=data.get("status", "recording"),
             steps=steps,
         )

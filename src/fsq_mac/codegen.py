@@ -161,8 +161,12 @@ def generate_shell_script(trace_run: TraceRun) -> str:
         "set -euo pipefail",
         "",
         "mac session start",
-        "",
     ]
+
+    if trace_run.frontmost_app:
+        lines.append(f"mac app launch {shlex.quote(str(trace_run.frontmost_app))}")
+
+    lines.append("")
 
     for step in trace_run.steps:
         if not step.replayable:

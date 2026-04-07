@@ -509,6 +509,13 @@ class AutomationCore:
     def trace_start(self, path: str | None = None, sid: str | None = None) -> Response:
         t = time.time()
         run = self._trace_store.start_trace(path)
+        active = sid or self._sm.active_id()
+        state = self._sm.get(active) if active else None
+        if state and state.frontmost_app:
+            run.frontmost_app = state.frontmost_app
+            self._trace_store._resolve_manifest_path(run.output_dir).write_text(
+                json.dumps(run.to_dict(), indent=2, ensure_ascii=False)
+            )
         self._active_trace_id = run.trace_id
         self._active_trace_path = run.output_dir
         return success_response("trace.start", data={
