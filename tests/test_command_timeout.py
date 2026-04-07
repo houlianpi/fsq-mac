@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -91,27 +91,49 @@ def _prep_adapter(adapter):
     return mock_el
 
 
-def test_click_returns_timeout_when_action_hangs(adapter):
-    """click() should return TIMEOUT error when ActionChains.perform blocks."""
+def test_click_recovers_via_coordinate_fallback_when_driver_click_hangs(adapter):
+    """click() should succeed when driver click hangs but coordinate fallback works."""
     mock_el = _prep_adapter(adapter)
     with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
         chain = MockAC.return_value.move_to_element.return_value.click.return_value
         chain.perform.side_effect = lambda: time.sleep(5)
         # Also make fallback el.click() block
         mock_el.click.side_effect = lambda: time.sleep(5)
-        result = adapter.click("e0")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+        with patch.object(adapter, "input_click_at", return_value={}) as mock_click_at:
+            result = adapter.click("e0")
+    assert result == {}
+    mock_click_at.assert_called_once()
 
 
-def test_click_fallback_timeout(adapter):
-    """If ActionChains fails with non-timeout, fallback el.click() timeout is caught."""
+def test_click_returns_timeout_when_driver_click_and_coordinate_fallback_fail(adapter):
+    """click() should still return TIMEOUT if both driver click paths and coordinate fallback fail."""
     mock_el = _prep_adapter(adapter)
     with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
         chain = MockAC.return_value.move_to_element.return_value.click.return_value
         chain.perform.side_effect = RuntimeError("primary failed")
         mock_el.click.side_effect = lambda: time.sleep(5)
-        result = adapter.click("e0")
+        with patch.object(adapter, "input_click_at", return_value={"error_code": ErrorCode.INTERNAL_ERROR, "detail": "click-at failed"}):
+            result = adapter.click("e0")
     assert result.get("error_code") == ErrorCode.TIMEOUT
+
+
+def test_click_uses_cached_frame_for_coordinate_fallback(adapter):
+    """click() should not re-read element frame after the driver click path has hung."""
+    mock_el = _prep_adapter(adapter)
+    cached_location = {"x": 10, "y": 10}
+    cached_size = {"width": 20, "height": 20}
+    mock_el.location = cached_location
+    mock_el.size = cached_size
+    with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
+        chain = MockAC.return_value.move_to_element.return_value.click.return_value
+        chain.perform.side_effect = lambda: time.sleep(5)
+        mock_el.click.side_effect = lambda: time.sleep(5)
+        with patch.object(adapter, "input_click_at", return_value={}) as mock_click_at:
+            type(mock_el).location = PropertyMock(side_effect=[cached_location, RuntimeError("stale frame")])
+            type(mock_el).size = PropertyMock(side_effect=[cached_size, RuntimeError("stale frame")])
+            result = adapter.click("e0")
+    assert result == {}
+    mock_click_at.assert_called_once_with(20, 20)
 
 
 def test_right_click_returns_timeout(adapter):

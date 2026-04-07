@@ -62,6 +62,37 @@ def _resolve_locator(strategy: str, value: str):
     return (by, value)
 
 
+def _quote_xpath_literal(value: str) -> str:
+    if "'" not in value:
+        return f"'{value}'"
+    if '"' not in value:
+        return f'"{value}"'
+    parts = value.split("'")
+    quoted = []
+    for i, part in enumerate(parts):
+        if part:
+            quoted.append(f"'{part}'")
+        if i != len(parts) - 1:
+            quoted.append('"\'"')
+    return "concat(" + ", ".join(quoted) + ")"
+
+
+def _query_xpath(query: LocatorQuery) -> str:
+    conditions: list[str] = []
+    if query.role:
+        role = query.role.replace("AX", "", 1) if query.role.startswith("AX") else query.role
+        conditions.append(f"self::XCUIElementType{role}")
+    if query.name:
+        quoted = _quote_xpath_literal(query.name)
+        conditions.append(f"(@name={quoted} or @title={quoted} or @value={quoted})")
+    if query.label:
+        quoted = _quote_xpath_literal(query.label)
+        conditions.append(f"@label={quoted}")
+    if not conditions:
+        return "//*"
+    return "//*[(" + ") and (".join(conditions) + ")]"
+
+
 # ---------------------------------------------------------------------------
 # Page source helpers
 # ---------------------------------------------------------------------------
@@ -427,27 +458,12 @@ class AppiumMac2Adapter:
             locator = _resolve_locator("id", query.id)
             el = _select_best_element(self._driver, locator, "id", query.id)
             return (el, None) if el is not None else (None, ErrorCode.ELEMENT_NOT_FOUND)
-        if query.role or query.name:
+        if query.role or query.name or query.label:
+            locator = _resolve_locator("xpath", _query_xpath(query))
             try:
-                def _find_by_role_name():
-                    candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
-                    return [el for el in candidates if self._matches_query(el, query)]
-                matches = self._run_with_timeout(_find_by_role_name)
-            except TimeoutError:
-                return None, ErrorCode.TIMEOUT
-            except Exception:
-                matches = []
-            if not matches:
-                return None, ErrorCode.ELEMENT_NOT_FOUND
-            if len(matches) > 1:
-                return None, ErrorCode.ELEMENT_AMBIGUOUS
-            return matches[0], None
-        if query.label:
-            try:
-                def _find_by_label():
-                    candidates = self._driver.find_elements(AppiumBy.XPATH, "//*")
-                    return [el for el in candidates if self._matches_query(el, query)]
-                matches = self._run_with_timeout(_find_by_label)
+                def _find_by_query():
+                    return self._driver.find_elements(*locator)
+                matches = self._run_with_timeout(_find_by_query)
             except TimeoutError:
                 return None, ErrorCode.TIMEOUT
             except Exception:
@@ -758,19 +774,51 @@ class AppiumMac2Adapter:
         wait_error = self._wait_for_actionable(el, timeout)
         if wait_error:
             return wait_error
+        fallback_frame = self._element_frame(el)
         try:
             self._run_with_timeout(
                 lambda: ActionChains(self._driver).move_to_element(el).click().perform()
             )
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
-        except Exception:
-            try:
-                self._run_with_timeout(lambda: el.click())
-            except TimeoutError as exc:
-                return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
-            except Exception as exc:
-                return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+            driver_click_error = exc
+        except Exception as exc:
+            driver_click_error = exc
+        else:
+            time.sleep(self._delay_post_action)
+            self._invalidate_refs()
+            self._tree_cache = None
+            return {}
+
+        try:
+            self._run_with_timeout(lambda: el.click())
+        except TimeoutError as exc:
+            driver_click_error = exc
+        except Exception as exc:
+            driver_click_error = exc
+        else:
+            time.sleep(self._delay_post_action)
+            self._invalidate_refs()
+            self._tree_cache = None
+            return {}
+
+        try:
+            x, y, width, height = fallback_frame
+            fallback = self.input_click_at(x + width / 2, y + height / 2)
+            if fallback.get("error_code"):
+                if isinstance(driver_click_error, TimeoutError):
+                    return {"error_code": ErrorCode.TIMEOUT, "detail": str(driver_click_error)}
+                detail = fallback.get("detail") or str(driver_click_error)
+                return {"error_code": fallback["error_code"], "detail": detail}
+        except Exception as exc:
+            if isinstance(driver_click_error, TimeoutError):
+                return {"error_code": ErrorCode.TIMEOUT, "detail": str(driver_click_error)}
+            return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
+
+        if isinstance(driver_click_error, TimeoutError):
+            logger.warning("Driver click timed out; recovered via coordinate click fallback")
+        else:
+            logger.warning("Driver click failed; recovered via coordinate click fallback: %s", driver_click_error)
+
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None

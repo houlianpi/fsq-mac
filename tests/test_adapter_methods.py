@@ -131,7 +131,7 @@ class TestResolveRef:
         }.get(attr, "")
 
         def _find_elements(by, value):
-            if value == "//*":
+            if value == "//*[(@label='Search')]":
                 return [mock_el]
             return []
 
@@ -139,6 +139,18 @@ class TestResolveRef:
         el, err = adapter_with_driver._resolve_ref(LocatorQuery(label="Search", xpath="//wrong"))
         assert el is mock_el
         assert err is None
+
+    def test_resolve_query_uses_direct_xpath_instead_of_full_tree_scan(self, adapter_with_driver):
+        mock_el = MagicMock()
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        query = LocatorQuery(role="AXButton", label="5")
+        el, err = adapter_with_driver._resolve_ref(query)
+        assert el is mock_el
+        assert err is None
+        adapter_with_driver._driver.find_elements.assert_called_once_with(
+            AppiumBy.XPATH,
+            "//*[(self::XCUIElementTypeButton) and (@label='5')]",
+        )
 
 
 class TestClick:
@@ -167,6 +179,20 @@ class TestClick:
             with patch("time.sleep"):
                 result = adapter_with_driver.click("e0")
         assert result == {}
+
+    def test_click_falls_back_to_coordinate_click_when_driver_click_paths_fail(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 10, "y": 20}
+        mock_el.size = {"width": 80, "height": 40}
+        adapter_with_driver._store_ref("e0", mock_el)
+        with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
+            MockAC.return_value.move_to_element.return_value.click.return_value.perform.side_effect = Exception("hang path")
+            mock_el.click.side_effect = Exception("element click failed")
+            with patch.object(adapter_with_driver, "input_click_at", return_value={}) as mock_click_at:
+                with patch("time.sleep"):
+                    result = adapter_with_driver.click("e0")
+        assert result == {}
+        mock_click_at.assert_called_once_with(50, 40)
 
     def test_click_waits_for_actionable_query(self, adapter_with_driver):
         mock_el = MagicMock()
