@@ -251,6 +251,11 @@ class AppiumMac2Adapter:
 
     def _get_page_source(self, force_refresh: bool = False) -> str:
         """Return page source, using cache if within TTL."""
+        if self._driver is None:
+            raise RuntimeError(
+                "No active driver connection. Launch an app first with "
+                "'mac app launch <bundle_id>'."
+            )
         now = time.monotonic()
         if (not force_refresh
                 and self._tree_cache is not None

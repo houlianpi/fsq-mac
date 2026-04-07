@@ -169,3 +169,15 @@ def test_cache_invalidated_after_input_click_at(adapter):
         mock_run.return_value = MagicMock(returncode=0)
         adapter.input_click_at(100, 200)
     assert adapter._tree_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Issue #1: _get_page_source raises when _driver is None
+# ---------------------------------------------------------------------------
+
+def test_get_page_source_raises_without_driver(mock_config):
+    """_get_page_source() should raise RuntimeError when _driver is None."""
+    adapter = AppiumMac2Adapter(mock_config)
+    # _driver is None by default after __init__
+    with pytest.raises(RuntimeError, match="No active driver"):
+        adapter._get_page_source()

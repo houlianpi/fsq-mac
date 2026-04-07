@@ -474,3 +474,26 @@ class TestWaitOps:
         adapter.wait_app.return_value = False
         resp = core.wait_app("com.test")
         assert resp.ok is False
+
+
+# ---------------------------------------------------------------------------
+# Issue #1: element_inspect returns error when driver not connected
+# ---------------------------------------------------------------------------
+
+class TestNoDriverErrors:
+    def test_element_inspect_no_driver(self, core_with_session):
+        """element_inspect should return BACKEND_UNAVAILABLE, not crash."""
+        core, adapter = core_with_session
+        adapter.inspect.side_effect = RuntimeError("No active driver connection.")
+        resp = core.element_inspect()
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.BACKEND_UNAVAILABLE
+        assert "driver" in resp.error.message.lower()
+
+    def test_capture_ui_tree_no_driver(self, core_with_session):
+        """capture_ui_tree should return BACKEND_UNAVAILABLE, not crash."""
+        core, adapter = core_with_session
+        adapter.ui_tree.side_effect = RuntimeError("No active driver connection.")
+        resp = core.capture_ui_tree()
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.BACKEND_UNAVAILABLE
