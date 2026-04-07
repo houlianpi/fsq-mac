@@ -27,7 +27,7 @@ Open **System Settings > Privacy & Security > Accessibility** and add your termi
 uv pip install fsq-mac
 
 # Or clone and install for development
-git clone https://github.com/anthropics/fsq-mac.git
+git clone https://github.com/houlianpi/fsq-mac.git
 cd fsq-mac
 uv sync
 ```

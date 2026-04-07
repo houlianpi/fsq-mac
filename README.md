@@ -15,6 +15,8 @@ Agent-first macOS automation CLI for native app automation.
 - Daemon-backed execution with explicit session management and safety gating.
 - Advanced workflows including trace capture, replay, code generation, and plugin extensibility.
 
+Demo screenshots and GIF guidance live in [docs/assets/README.md](docs/assets/README.md).
+
 ## Install
 
 Install the published CLI from PyPI:
@@ -83,6 +85,8 @@ Generate shell commands from a trace:
 ```bash
 mac trace codegen artifacts/traces/demo
 ```
+
+For repository screenshots and short GIF demos, see [docs/assets/README.md](docs/assets/README.md).
 
 ## Prerequisites
 
