@@ -1,8 +1,7 @@
 # fsq-mac
 
-[![PyPI](https://img.shields.io/pypi/v/fsq-mac.svg)](https://pypi.org/project/fsq-mac/)
 [![CI](https://github.com/houlianpi/fsq-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/houlianpi/fsq-mac/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/pypi/pyversions/fsq-mac.svg)](https://pypi.org/project/fsq-mac/)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://github.com/houlianpi/fsq-mac)
 [![License](https://img.shields.io/github/license/houlianpi/fsq-mac.svg)](LICENSE)
 
 Agent-first macOS automation CLI for native app automation.
@@ -19,10 +18,8 @@ Demo screenshots and GIF guidance live in [docs/assets/README.md](docs/assets/RE
 
 ## Install
 
-Install the published CLI from PyPI:
-
 ```bash
-uv pip install fsq-mac
+pip install fsq-mac
 ```
 
 After installation, the CLI is available as `mac`.

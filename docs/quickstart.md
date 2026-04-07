@@ -24,7 +24,7 @@ Open **System Settings > Privacy & Security > Accessibility** and add your termi
 
 ```bash
 # From PyPI
-uv pip install fsq-mac
+pip install fsq-mac
 
 # Or clone and install for development
 git clone https://github.com/houlianpi/fsq-mac.git
