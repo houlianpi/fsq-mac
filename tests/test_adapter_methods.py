@@ -453,6 +453,11 @@ class TestUiTree:
         result = adapter_with_driver.ui_tree()
         assert "<root" in result
 
+    def test_ui_tree_raises_runtime_error_when_page_source_times_out(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=TimeoutError("Driver operation timed out after 0.5s")):
+            with pytest.raises(RuntimeError, match="Timed out retrieving page source"):
+                adapter_with_driver.ui_tree()
+
 
 class TestInspect:
     def test_inspect_empty(self, adapter_with_driver):
@@ -468,6 +473,39 @@ class TestInspect:
         result = adapter_with_driver.inspect()
         assert len(result) == 1
         assert result[0]["role"] == "Button"
+
+    def test_inspect_returns_parsed_elements_when_ref_binding_times_out(self, adapter_with_driver):
+        adapter_with_driver._driver.page_source = '<AppiumAUT><XCUIElementTypeButton name="OK" visible="true" width="50" height="30"/></AppiumAUT>'
+
+        def _run_with_timeout(fn, timeout=None):
+            code_names = set(fn.__code__.co_names)
+            if "find_elements" in code_names:
+                raise TimeoutError("Driver operation timed out after 0.5s")
+            return fn()
+
+        with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=_run_with_timeout):
+            result = adapter_with_driver.inspect()
+
+        assert len(result) == 1
+        assert result[0]["name"] == "OK"
+        el, err = adapter_with_driver._get_ref("e0")
+        assert el is None
+        assert err == ErrorCode.ELEMENT_NOT_FOUND
+
+
+class TestActionableWait:
+    def test_wait_for_actionable_times_out_when_probe_blocks(self, adapter_with_driver):
+        mock_el = MagicMock()
+        with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=TimeoutError("Driver operation timed out after 0.5s")):
+            result = adapter_with_driver._wait_for_actionable(mock_el, timeout=1)
+        assert result["error_code"] == ErrorCode.TIMEOUT
+        assert "probing element state" in result["detail"]
+
+    def test_wait_for_actionable_returns_stale_when_probe_raises(self, adapter_with_driver):
+        mock_el = MagicMock()
+        with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=RuntimeError("stale element")):
+            result = adapter_with_driver._wait_for_actionable(mock_el, timeout=1)
+        assert result["error_code"] == ErrorCode.ELEMENT_REFERENCE_STALE
 
 
 class TestFind:
@@ -622,14 +660,47 @@ class TestWindowList:
 
 class TestWindowFocus:
     def test_window_focus_success(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run:
-            # First call: window_list, second call: focus
-            mock_run.side_effect = [
-                MagicMock(returncode=0, stdout="Window 1, Window 2\n"),
-                MagicMock(returncode=0),
-            ]
-            result = adapter_with_driver.window_focus(0)
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_window", return_value={"title": "Window 1"}):
+            with patch("subprocess.run") as mock_run:
+                # First call: window_list, second call: focus
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="Window 1, Window 2\n"),
+                    MagicMock(returncode=0),
+                ]
+                result = adapter_with_driver.window_focus(0)
         assert result["focused"] == 0
+
+    def test_window_focus_waits_for_frontmost_title(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_window", return_value={"title": "Window 1"}) as mock_wait:
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="Window 1, Window 2\n"),
+                    MagicMock(returncode=0),
+                ]
+                result = adapter_with_driver.window_focus(0)
+        assert result["focused"] == 0
+        mock_wait.assert_called_once_with("com.apple.calculator", "Window 1", timeout=5)
+
+    def test_window_focus_returns_timeout_when_focus_never_settles(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_window", return_value=None):
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="Window 1, Window 2\n"),
+                    MagicMock(returncode=0),
+                ]
+                result = adapter_with_driver.window_focus(0)
+        assert result["error_code"] == ErrorCode.TIMEOUT
+
+    def test_window_focus_scopes_stabilization_to_managed_bundle(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_window", return_value={"title": "Window 1", "app_bundle_id": "com.apple.calculator"}) as mock_wait:
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = [
+                    MagicMock(returncode=0, stdout="Window 1, Window 2\n"),
+                    MagicMock(returncode=0),
+                ]
+                result = adapter_with_driver.window_focus(0)
+        assert result["focused"] == 0
+        mock_wait.assert_called_once_with("com.apple.calculator", "Window 1", timeout=5)
 
     def test_window_focus_out_of_range(self, adapter_with_driver):
         with patch("subprocess.run") as mock_run:
@@ -659,18 +730,21 @@ class TestWaitElement:
 
 class TestWaitWindow:
     def test_wait_window_found(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run, patch("time.sleep"), patch("time.time") as mock_time:
-            mock_time.side_effect = [0, 0, 20]
-            mock_run.return_value = MagicMock(returncode=0, stdout="Test Window\n")
+        with patch.object(adapter_with_driver, "_poll_until", return_value={"title": "Test Window"}) as mock_poll:
             result = adapter_with_driver.wait_window("Test", timeout=10)
         assert result is True
+        mock_poll.assert_called_once()
 
     def test_wait_window_timeout(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run, patch("time.sleep"), patch("time.time") as mock_time:
-            mock_time.side_effect = [0, 20]
-            mock_run.return_value = MagicMock(returncode=1, stdout="")
+        with patch.object(adapter_with_driver, "_poll_until", return_value=None):
             result = adapter_with_driver.wait_window("Nope", timeout=0)
         assert result is False
+
+    def test_wait_window_succeeds_when_managed_app_window_exists_in_background(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_poll_until", return_value={"titles": ["Test Window", "Other"]}) as mock_poll:
+            result = adapter_with_driver.wait_window("Test", timeout=10)
+        assert result is True
+        mock_poll.assert_called_once()
 
     def test_wait_window_no_bundle(self):
         a = AppiumMac2Adapter({"server_url": "http://127.0.0.1:4723"})
@@ -680,38 +754,64 @@ class TestWaitWindow:
 
 class TestWaitApp:
     def test_wait_app_found(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run, patch("time.sleep"), patch("time.time") as mock_time:
-            mock_time.side_effect = [0, 0, 20]
-            mock_run.return_value = MagicMock(returncode=0, stdout="com.test\n")
+        with patch.object(adapter_with_driver, "_poll_until", return_value={"bundle_id": "com.test"}) as mock_poll:
             result = adapter_with_driver.wait_app("com.test", timeout=10)
         assert result is True
+        mock_poll.assert_called_once()
 
     def test_wait_app_timeout(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run, patch("time.sleep"), patch("time.time") as mock_time:
-            mock_time.side_effect = [0, 20]
-            mock_run.return_value = MagicMock(returncode=1, stdout="")
+        with patch.object(adapter_with_driver, "_poll_until", return_value=None):
             result = adapter_with_driver.wait_app("com.test", timeout=0)
         assert result is False
+
+    def test_wait_app_succeeds_when_app_exists_in_background(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_poll_until", return_value={"bundle_ids": ["com.test"]}) as mock_poll:
+            result = adapter_with_driver.wait_app("com.test", timeout=10)
+        assert result is True
+        mock_poll.assert_called_once()
+
+
+class TestAppLaunch:
+    def test_app_launch_waits_for_frontmost_bundle(self, adapter_with_driver):
+        with patch("fsq_mac.adapters.appium_mac2.webdriver.Remote", return_value=adapter_with_driver._driver):
+            with patch.object(adapter_with_driver, "_wait_for_frontmost_app", return_value={"bundle_id": "com.apple.calculator", "name": "Calculator"}) as mock_wait:
+                result = adapter_with_driver.app_launch("com.apple.calculator")
+        assert result["bundle_id"] == "com.apple.calculator"
+        mock_wait.assert_called_once_with("com.apple.calculator", timeout=5)
+
+    def test_app_launch_returns_timeout_when_frontmost_never_settles(self, adapter_with_driver):
+        with patch("fsq_mac.adapters.appium_mac2.webdriver.Remote", return_value=adapter_with_driver._driver):
+            with patch.object(adapter_with_driver, "_wait_for_frontmost_app", return_value=None):
+                result = adapter_with_driver.app_launch("com.apple.calculator")
+        assert result["error_code"] == ErrorCode.TIMEOUT
 
 
 class TestAppActivate:
     def test_activate_success(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run, patch("time.sleep"):
-            mock_run.return_value = MagicMock(returncode=0, stdout="Calculator\n")
-            result = adapter_with_driver.app_activate("com.apple.calculator")
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_app", return_value={"bundle_id": "com.apple.calculator", "name": "Calculator"}) as mock_wait:
+            with patch("time.sleep"):
+                result = adapter_with_driver.app_activate("com.apple.calculator")
+        assert result["bundle_id"] == "com.apple.calculator"
+        mock_wait.assert_called_once_with("com.apple.calculator", timeout=5)
+
+    def test_activate_returns_timeout_when_frontmost_never_settles(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_app", return_value=None):
+            with patch("time.sleep"):
+                result = adapter_with_driver.app_activate("com.apple.calculator")
+        assert result["error_code"] == ErrorCode.TIMEOUT
+
+    def test_activate_driver_fails_falls_back(self, adapter_with_driver):
+        adapter_with_driver._driver.activate_app.side_effect = Exception("unsupported")
+        with patch.object(adapter_with_driver, "_wait_for_frontmost_app", return_value={"bundle_id": "com.apple.calculator", "name": "Calculator"}):
+            with patch("subprocess.run") as mock_run, patch("time.sleep"):
+                mock_run.return_value = MagicMock(returncode=0, stdout="")
+                result = adapter_with_driver.app_activate("com.apple.calculator")
         assert result["bundle_id"] == "com.apple.calculator"
 
     def test_activate_no_driver(self):
         a = AppiumMac2Adapter({"server_url": "http://127.0.0.1:4723"})
         result = a.app_activate("com.test")
         assert result["error_code"] == ErrorCode.BACKEND_UNAVAILABLE
-
-    def test_activate_driver_fails_falls_back(self, adapter_with_driver):
-        adapter_with_driver._driver.activate_app.side_effect = Exception("unsupported")
-        with patch("subprocess.run") as mock_run, patch("time.sleep"):
-            mock_run.return_value = MagicMock(returncode=0, stdout="Calculator\n")
-            result = adapter_with_driver.app_activate("com.apple.calculator")
-        assert result["bundle_id"] == "com.apple.calculator"
 
 
 class TestAppTerminate:

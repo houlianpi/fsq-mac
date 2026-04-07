@@ -509,3 +509,17 @@ class TestNoDriverErrors:
         resp = core.capture_ui_tree()
         assert resp.ok is False
         assert resp.error.code == ErrorCode.BACKEND_UNAVAILABLE
+
+    def test_element_inspect_page_source_timeout(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.inspect.side_effect = RuntimeError("Timed out retrieving page source after 15.0s")
+        resp = core.element_inspect()
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.TIMEOUT
+
+    def test_capture_ui_tree_page_source_timeout(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.ui_tree.side_effect = RuntimeError("Timed out retrieving page source after 15.0s")
+        resp = core.capture_ui_tree()
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.TIMEOUT

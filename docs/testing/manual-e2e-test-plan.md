@@ -309,6 +309,26 @@ mac app launch com.apple.calculator --pretty
 | E2.2 | 录制后立刻继续 inspect / ui-tree | 不应持续读取明显过时的 UI 状态 | [ ] |
 | E2.3 | `doctor plugins` | 正常列出 plugin discovery 结果 | [ ] |
 
+### E3. Timing Stability Remediation 回归
+
+建议在 Calculator 已启动、且 session 有效时执行。
+
+| # | 操作 | 预期结果 | 通过 |
+|---|------|---------|------|
+| E3.1 | 连续执行 3 次 `mac element inspect --pretty` | 每次都应在可接受时间内返回，不出现长时间卡住 | [ ] |
+| E3.2 | 连续执行 3 次 `mac capture ui-tree --pretty` | 每次都应在可接受时间内返回，不出现长时间卡住 | [ ] |
+| E3.3 | 在窗口切换或动画刚结束后立刻执行 `mac element click --role Button --name 5 --pretty` | 要么成功，要么在超时内返回明确错误；不应无界挂起 | [ ] |
+| E3.4 | 若一次点击失败，立即再次执行 `mac element inspect --pretty` | inspect 仍能返回结果，不应因前一次慢调用而持续阻塞 | [ ] |
+| E3.5 | 执行 `mac app launch com.apple.calculator --pretty` 后立刻执行 `mac app current --pretty` | 当前 frontmost app 应稳定为 Calculator；若无法稳定，应返回明确超时而不是假成功 | [ ] |
+| E3.6 | 从其他应用切回 Calculator：先手动切到别的 app，再执行 `mac app activate com.apple.calculator --pretty` | 命令只应在 Calculator 真正成为 frontmost 后返回成功 | [ ] |
+| E3.7 | 对有多个窗口的应用执行 `mac window focus 0 --pretty` 后立刻执行 `mac window current --pretty` | 当前 frontmost window title 应与目标窗口一致；若未稳定，应返回明确超时 | [ ] |
+| E3.8 | 连续执行 `mac wait app com.apple.calculator --timeout 5000 --pretty` 和 `mac wait window "Calculator" --timeout 5000 --pretty` | 应快速返回成功；轮询不应表现为 1 秒一跳的明显迟滞 | [ ] |
+
+说明：
+
+- 这里的重点不是必须全部成功，而是命令行为必须有界。
+- 如果出现失败，优先确认是否返回了明确的 `TIMEOUT` 或其他结构化错误，而不是终端长时间无响应。
+
 ---
 
 ## 记录模板

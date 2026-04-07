@@ -310,6 +310,17 @@ class AppiumMac2Adapter:
         if self._driver:
             self._driver.implicitly_wait(self._command_timeout)
 
+    def _poll_until(self, predicate, timeout: float, interval: float = 0.2):
+        deadline = time.monotonic() + timeout
+        while True:
+            result = predicate()
+            if result:
+                return result
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            time.sleep(min(interval, remaining))
+
     def _get_page_source(self, force_refresh: bool = False) -> str:
         """Return page source, using cache if within TTL."""
         if self._driver is None:
@@ -323,9 +334,146 @@ class AppiumMac2Adapter:
                 and self._tree_ttl > 0
                 and (now - self._tree_cache_time) < self._tree_ttl):
             return self._tree_cache
-        self._tree_cache = self._driver.page_source
-        self._tree_cache_time = now
+        try:
+            self._tree_cache = self._run_with_timeout(
+                lambda: self._driver.page_source
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"Timed out retrieving page source after {self._command_timeout}s"
+            ) from exc
+        self._tree_cache_time = time.monotonic()
         return self._tree_cache
+
+    def _frontmost_app_snapshot(self) -> dict | None:
+        _SEP = "\x1f"
+        try:
+            script = ('tell application "System Events"\n'
+                      '  set fp to first application process whose frontmost is true\n'
+                      '  set appName to name of fp\n'
+                      '  set appBid to bundle identifier of fp\n'
+                      '  return appName & ASCII character 31 & appBid\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0 and _SEP in result.stdout.strip():
+                parts = result.stdout.strip().split(_SEP, 1)
+                return {"name": parts[0], "bundle_id": parts[1]}
+        except Exception:
+            pass
+        return None
+
+    def _frontmost_window_snapshot(self) -> dict | None:
+        _SEP = "\x1f"
+        try:
+            script = ('tell application "System Events"\n'
+                      '  set fp to first application process whose frontmost is true\n'
+                      '  set appName to name of fp\n'
+                      '  set appBid to bundle identifier of fp\n'
+                      '  set fw to front window of fp\n'
+                      '  set winName to name of fw\n'
+                      '  set winPos to position of fw\n'
+                      '  set winSz to size of fw\n'
+                      '  set sep to ASCII character 31\n'
+                      '  return appName & sep & appBid & sep & winName & sep & (item 1 of winPos) & sep & (item 2 of winPos) & sep & (item 1 of winSz) & sep & (item 2 of winSz)\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0 and _SEP in result.stdout.strip():
+                parts = result.stdout.strip().split(_SEP)
+                if len(parts) >= 7:
+                    return {
+                        "app_name": parts[0],
+                        "app_bundle_id": parts[1],
+                        "title": parts[2],
+                        "x": int(parts[3]),
+                        "y": int(parts[4]),
+                        "width": int(parts[5]),
+                        "height": int(parts[6]),
+                    }
+        except Exception:
+            pass
+        return None
+
+    def _app_process_snapshot(self, bundle_id: str) -> dict | None:
+        try:
+            safe_bid = _safe_applescript_str(bundle_id)
+            result = subprocess.run(
+                ["osascript", "-e",
+                 f'tell application "System Events" to get bundle identifier of every application process whose bundle identifier is "{safe_bid}"'],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0 and bundle_id in result.stdout:
+                return {"bundle_ids": [bundle_id]}
+        except Exception:
+            pass
+        return None
+
+    def _managed_window_snapshot(self, bundle_id: str) -> dict | None:
+        try:
+            safe_bid = _safe_applescript_str(bundle_id)
+            script = ('tell application "System Events"\n'
+                      f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
+                      '  get name of every window of ap\n'
+                      'end tell')
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0:
+                titles = [n.strip() for n in result.stdout.strip().split(", ") if n.strip()]
+                return {"titles": titles}
+        except Exception:
+            pass
+        return None
+
+    def _wait_for_frontmost_app(self, bundle_id: str, timeout: float = 5):
+        return self._poll_until(
+            lambda: (snapshot if (snapshot := self._frontmost_app_snapshot()) and snapshot.get("bundle_id") == bundle_id else None),
+            timeout=timeout,
+        )
+
+    def _wait_for_frontmost_window(self, bundle_id: str, title: str, timeout: float = 5):
+        title_lower = title.lower()
+        return self._poll_until(
+            lambda: (snapshot if (snapshot := self._frontmost_window_snapshot()) and snapshot.get("app_bundle_id") == bundle_id and title_lower in snapshot.get("title", "").lower() else None),
+            timeout=timeout,
+        )
+
+    def _probe_actionable_state(self, element) -> tuple[tuple[int, int, int, int], bool, bool]:
+        frame = self._element_frame(element)
+
+        visible = True
+        try:
+            if hasattr(element, "is_displayed") and not element.is_displayed():
+                visible = False
+        except Exception:
+            pass
+        try:
+            if element.get_attribute("visible") == "false":
+                visible = False
+        except Exception:
+            pass
+        try:
+            if element.get_attribute("displayed") == "false":
+                visible = False
+        except Exception:
+            pass
+
+        _, _, width, height = frame
+        visible = visible and width > 0 and height > 0
+
+        enabled = True
+        try:
+            enabled = (element.get_attribute("enabled") or "true") != "false"
+        except Exception:
+            pass
+
+        return frame, visible, enabled
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -515,23 +663,39 @@ class AppiumMac2Adapter:
             return True
 
     def _wait_for_actionable(self, element, timeout: int = 5) -> dict | None:
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         last_frame = None
+        waiting_on = ["visible", "enabled", "stable"]
         while True:
-            frame = self._element_frame(element)
-            checks = {
-                "visible": self._element_visible(element),
-                "enabled": self._element_enabled(element),
-                "stable": last_frame is not None and frame == last_frame,
-            }
-            if all(checks.values()):
-                return None
-            if time.time() >= deadline:
-                waiting_on = [name for name, ok in checks.items() if not ok]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 return {
                     "error_code": ErrorCode.TIMEOUT,
                     "detail": f"Element did not become actionable; waiting on {', '.join(waiting_on)}",
                 }
+            try:
+                frame, visible, enabled = self._run_with_timeout(
+                    lambda: self._probe_actionable_state(element),
+                    timeout=remaining,
+                )
+            except TimeoutError as exc:
+                return {
+                    "error_code": ErrorCode.TIMEOUT,
+                    "detail": f"Timed out while probing element state: {exc}",
+                }
+            except Exception as exc:
+                return {
+                    "error_code": ErrorCode.ELEMENT_REFERENCE_STALE,
+                    "detail": str(exc),
+                }
+            checks = {
+                "visible": visible,
+                "enabled": enabled,
+                "stable": last_frame is not None and frame == last_frame,
+            }
+            if all(checks.values()):
+                return None
+            waiting_on = [name for name, ok in checks.items() if not ok]
             last_frame = frame
             time.sleep(0.1)
 
@@ -574,7 +738,10 @@ class AppiumMac2Adapter:
             self._configure_driver_timeouts()
             self._invalidate_refs()
             self._tree_cache = None
-            return self._frontmost_info()
+            info = self._wait_for_frontmost_app(bundle_id, timeout=5)
+            if info is None:
+                return {"error_code": ErrorCode.TIMEOUT, "detail": f"Timed out waiting for app {bundle_id!r} to become frontmost"}
+            return info
         except Exception as exc:
             return {"error_code": ErrorCode.BACKEND_UNAVAILABLE, "detail": str(exc)}
 
@@ -596,19 +763,9 @@ class AppiumMac2Adapter:
             )
         self._invalidate_refs()
         time.sleep(self._delay_post_action)
-        # Return info about the activated app, not just the managed session's app
-        info = {"bundle_id": bundle_id}
-        try:
-            safe_bid = _safe_applescript_str(bundle_id)
-            result = subprocess.run(
-                ["osascript", "-e",
-                 f'tell application "System Events" to get name of first application process whose bundle identifier is "{safe_bid}"'],
-                capture_output=True, text=True, timeout=5, check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                info["name"] = result.stdout.strip()
-        except Exception:
-            pass
+        info = self._wait_for_frontmost_app(bundle_id, timeout=5)
+        if info is None:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": f"Timed out waiting for app {bundle_id!r} to become frontmost"}
         self._tree_cache = None
         return info
 
@@ -634,23 +791,9 @@ class AppiumMac2Adapter:
 
     def app_current(self) -> dict:
         """Return the actual macOS frontmost application."""
-        _SEP = "\x1f"  # ASCII Unit Separator — safe delimiter
-        try:
-            script = ('tell application "System Events"\n'
-                      '  set fp to first application process whose frontmost is true\n'
-                      '  set appName to name of fp\n'
-                      '  set appBid to bundle identifier of fp\n'
-                      '  return appName & ASCII character 31 & appBid\n'
-                      'end tell')
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True, text=True, timeout=5, check=False,
-            )
-            if result.returncode == 0 and _SEP in result.stdout.strip():
-                parts = result.stdout.strip().split(_SEP, 1)
-                return {"name": parts[0], "bundle_id": parts[1]}
-        except Exception:
-            pass
+        snapshot = self._frontmost_app_snapshot()
+        if snapshot:
+            return snapshot
         return self._frontmost_info()
 
     def app_list(self) -> list[dict]:
@@ -719,10 +862,14 @@ class AppiumMac2Adapter:
         elements = parse_ui_tree(source, max_elements=max_elements)
         # Bind refs by document-order index
         try:
-            all_web_els = self._driver.find_elements(AppiumBy.XPATH, "//*")
+            all_web_els = self._run_with_timeout(
+                lambda: self._driver.find_elements(AppiumBy.XPATH, "//*")
+            )
             for info in elements:
                 if 0 <= info.doc_order_index < len(all_web_els):
                     self._store_ref(info.element_id, all_web_els[info.doc_order_index])
+        except TimeoutError:
+            logger.warning("Timed out binding inspect element refs; returning parsed tree without refs")
         except Exception:
             pass
         return [e.to_dict() for e in elements]
@@ -1161,37 +1308,9 @@ class AppiumMac2Adapter:
 
     def window_current(self) -> dict:
         """Return info about the actual frontmost window."""
-        _SEP = "\x1f"  # ASCII Unit Separator — safe delimiter
-        try:
-            script = ('tell application "System Events"\n'
-                      '  set fp to first application process whose frontmost is true\n'
-                      '  set appName to name of fp\n'
-                      '  set appBid to bundle identifier of fp\n'
-                      '  set fw to front window of fp\n'
-                      '  set winName to name of fw\n'
-                      '  set winPos to position of fw\n'
-                      '  set winSz to size of fw\n'
-                      '  set sep to ASCII character 31\n'
-                      '  return appName & sep & appBid & sep & winName & sep & (item 1 of winPos) & sep & (item 2 of winPos) & sep & (item 1 of winSz) & sep & (item 2 of winSz)\n'
-                      'end tell')
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True, text=True, timeout=5, check=False,
-            )
-            if result.returncode == 0 and _SEP in result.stdout.strip():
-                parts = result.stdout.strip().split(_SEP)
-                if len(parts) >= 7:
-                    return {
-                        "app_name": parts[0],
-                        "app_bundle_id": parts[1],
-                        "title": parts[2],
-                        "x": int(parts[3]),
-                        "y": int(parts[4]),
-                        "width": int(parts[5]),
-                        "height": int(parts[6]),
-                    }
-        except Exception:
-            pass
+        snapshot = self._frontmost_window_snapshot()
+        if snapshot:
+            return snapshot
         # Fallback: managed app window via driver
         try:
             size = self._driver.get_window_size()
@@ -1268,8 +1387,13 @@ class AppiumMac2Adapter:
             if result.returncode != 0:
                 return {"error_code": ErrorCode.WINDOW_NOT_FOUND,
                         "detail": result.stderr.strip() or "Failed to focus window"}
+            title = windows[index].get("title", "")
+            info = self._wait_for_frontmost_window(bid, title, timeout=5)
+            if info is None:
+                return {"error_code": ErrorCode.TIMEOUT,
+                        "detail": f"Timed out waiting for window {title!r} to become frontmost"}
             self._invalidate_refs()
-            return {"focused": index, "title": windows[index].get("title", "")}
+            return {"focused": index, "title": title}
         except Exception as exc:
             return {"error_code": ErrorCode.WINDOW_NOT_FOUND, "detail": str(exc)}
 
@@ -1289,46 +1413,24 @@ class AppiumMac2Adapter:
         if not bid:
             return False
         try:
-            safe_bid = _safe_applescript_str(bid)
+            _safe_applescript_str(bid)
         except ValueError:
             return False
-        script = ('tell application "System Events"\n'
-                  f'  set ap to first application process whose bundle identifier is "{safe_bid}"\n'
-                  '  get name of every window of ap\n'
-                  'end tell')
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                result = subprocess.run(
-                    ["osascript", "-e", script],
-                    capture_output=True, text=True, timeout=5, check=False,
-                )
-                if result.returncode == 0:
-                    names = [n.strip() for n in result.stdout.strip().split(", ")]
-                    if any(title.lower() in n.lower() for n in names):
-                        return True
-            except Exception:
-                pass
-            time.sleep(1)
-        return False
+        return self._poll_until(
+            lambda: (snapshot if (snapshot := self._managed_window_snapshot(bid)) and any(title.lower() in name.lower() for name in snapshot.get("titles", [])) else None),
+            timeout=timeout,
+        ) is not None
 
     def wait_app(self, bundle_id: str, timeout: float = 10) -> bool:
         """Poll for an application with the given bundle ID to appear."""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                safe_bid = _safe_applescript_str(bundle_id)
-                result = subprocess.run(
-                    ["osascript", "-e",
-                     f'tell application "System Events" to get bundle identifier of every application process whose bundle identifier is "{safe_bid}"'],
-                    capture_output=True, text=True, timeout=5, check=False,
-                )
-                if result.returncode == 0 and bundle_id in result.stdout:
-                    return True
-            except Exception:
-                pass
-            time.sleep(1)
-        return False
+        try:
+            _safe_applescript_str(bundle_id)
+        except ValueError:
+            return False
+        return self._poll_until(
+            lambda: self._app_process_snapshot(bundle_id),
+            timeout=timeout,
+        ) is not None
 
     # -- doctor helpers -----------------------------------------------------
 

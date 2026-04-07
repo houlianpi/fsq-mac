@@ -296,8 +296,13 @@ class AutomationCore:
         try:
             elements = adapter.inspect()
         except RuntimeError as exc:
+            message = str(exc)
+            if "Timed out retrieving page source" in message:
+                return error_response("element.inspect", ErrorCode.TIMEOUT,
+                                      message,
+                                      session_id=active, meta=self._meta(t, active))
             return error_response("element.inspect", ErrorCode.BACKEND_UNAVAILABLE,
-                                  str(exc),
+                                  message,
                                   suggested_next_action="mac app launch <bundle_id>",
                                   session_id=active, meta=self._meta(t, active))
         return success_response("element.inspect", data={
@@ -640,8 +645,13 @@ class AutomationCore:
         try:
             tree = adapter.ui_tree()
         except RuntimeError as exc:
+            message = str(exc)
+            if "Timed out retrieving page source" in message:
+                return error_response("capture.ui-tree", ErrorCode.TIMEOUT,
+                                      message,
+                                      session_id=active, meta=self._meta(t, active))
             return error_response("capture.ui-tree", ErrorCode.BACKEND_UNAVAILABLE,
-                                  str(exc),
+                                  message,
                                   suggested_next_action="mac app launch <bundle_id>",
                                   session_id=active, meta=self._meta(t, active))
         return success_response("capture.ui-tree", data={"ui_tree": tree},
