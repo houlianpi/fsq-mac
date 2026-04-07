@@ -1,9 +1,9 @@
 # fsq-mac
 
 [![PyPI](https://img.shields.io/pypi/v/fsq-mac.svg)](https://pypi.org/project/fsq-mac/)
-[![CI](https://github.com/qunmi/fsq-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/qunmi/fsq-mac/actions/workflows/ci.yml)
+[![CI](https://github.com/houlianpi/fsq-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/houlianpi/fsq-mac/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/pypi/pyversions/fsq-mac.svg)](https://pypi.org/project/fsq-mac/)
-[![License](https://img.shields.io/github/license/qunmi/fsq-mac.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/houlianpi/fsq-mac.svg)](LICENSE)
 
 Agent-first macOS automation CLI for native app automation.
 
