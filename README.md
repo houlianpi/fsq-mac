@@ -25,6 +25,15 @@ CLI (cli.py) → HTTP Client → Daemon (Starlette/Uvicorn) → Core → Adapter
 ## Install
 
 ```bash
+# Install the released CLI from PyPI
+uv pip install fsq-mac
+```
+
+After installation, the CLI is available as `mac`.
+
+If you are working from a local source checkout instead of the published package:
+
+```bash
 uv sync
 ```
 

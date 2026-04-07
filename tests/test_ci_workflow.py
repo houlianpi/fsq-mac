@@ -12,6 +12,8 @@ def test_ci_workflow_runs_pytest_with_junit():
     text = Path(".github/workflows/ci.yml").read_text()
     assert "uv sync --group dev" in text
     assert "--junitxml=test-results/junit.xml" in text
+    assert "uv.lock" in text
+    assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24" in text
 
 
 def test_ci_workflow_runs_on_main_only_for_pushes():
@@ -24,6 +26,12 @@ def test_readme_documents_ci_workflow():
     text = Path("README.md").read_text()
     assert "GitHub Actions" in text
     assert "test-results/junit.xml" in text
+
+
+def test_readme_prefers_pypi_install_for_users():
+    text = Path("README.md").read_text()
+    assert "uv pip install fsq-mac" in text
+    assert "uv sync" in text
 
 
 def test_ci_workflow_uploads_junit_and_artifacts():
@@ -52,3 +60,5 @@ def test_publish_workflow_builds_and_publishes_to_pypi():
     assert "uv run pytest tests/" in text
     assert "pypa/gh-action-pypi-publish" in text
     assert "id-token: write" in text
+    assert "uv.lock" in text
+    assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24" in text
