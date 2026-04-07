@@ -29,6 +29,9 @@ class TestAdapterErrorDicts:
         adapter._driver = MagicMock()
         adapter._driver.get_window_size.return_value = {"width": 100, "height": 100}
         adapter._driver.activate_app.return_value = None
+        adapter._wait_for_frontmost_app = MagicMock(
+            return_value={"name": "Test", "bundle_id": "com.test"}
+        )
         result = adapter.app_activate("com.test")
         # Should return a normal dict, not an error dict
         assert "error_code" not in result

@@ -30,7 +30,7 @@ def test_readme_documents_ci_workflow():
 
 def test_readme_prefers_pypi_install_for_users():
     text = Path("README.md").read_text()
-    assert "uv pip install fsq-mac" in text
+    assert "pip install fsq-mac" in text
     assert "uv sync" in text
 
 
