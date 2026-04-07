@@ -400,10 +400,10 @@ class TestPhase2Methods:
         assert result == {}
 
     def test_input_click_at_success(self, adapter_with_driver):
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stderr="")
+        with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=lambda fn, timeout=None: fn()):
             result = adapter_with_driver.input_click_at(100, 200)
         assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_once_with("macos: click", {"x": 100, "y": 200})
 
     def test_menu_click_success(self, adapter_with_driver):
         with patch("subprocess.run") as mock_run:

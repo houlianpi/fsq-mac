@@ -186,6 +186,13 @@ def test_drag_returns_timeout(adapter):
     assert result.get("error_code") == ErrorCode.TIMEOUT
 
 
+def test_input_click_at_returns_timeout(adapter):
+    """input_click_at() should return TIMEOUT when macos: click blocks."""
+    with patch.object(adapter, "_run_with_timeout", side_effect=TimeoutError("Driver operation timed out after 0.5s")):
+        result = adapter.input_click_at(100, 200)
+    assert result.get("error_code") == ErrorCode.TIMEOUT
+
+
 # ---------------------------------------------------------------------------
 # _resolve_query timeout
 # ---------------------------------------------------------------------------

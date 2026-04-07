@@ -1015,23 +1015,21 @@ class AppiumMac2Adapter:
         return {}
 
     def input_click_at(self, x: int, y: int) -> dict:
-        script = (
-            'tell application "System Events"\n'
-            f'  click at {{{int(x)}, {int(y)}}}\n'
-            'end tell'
-        )
         try:
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True, text=True, timeout=10, check=False,
+            time.sleep(self._delay_pre_input)
+            self._run_with_timeout(
+                lambda: self._driver.execute_script(
+                    "macos: click",
+                    {"x": int(x), "y": int(y)},
+                )
             )
-            if result.returncode != 0:
-                return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": result.stderr.strip() or "click-at failed"}
-            self._invalidate_refs()
-            self._tree_cache = None
-            return {}
+        except TimeoutError as exc:
+            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
+        self._invalidate_refs()
+        self._tree_cache = None
+        return {}
 
     def _assert_compare(self, actual: str, expected: str, kind: str) -> dict:
         if actual == expected:

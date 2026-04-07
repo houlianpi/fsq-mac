@@ -165,8 +165,7 @@ def test_cache_invalidated_after_input_click_at(adapter):
     """input_click_at() should invalidate the tree cache."""
     adapter._tree_cache = "cached"
     adapter._invalidate_refs = MagicMock()
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
+    with patch.object(adapter, "_run_with_timeout", side_effect=lambda fn, timeout=None: fn()):
         adapter.input_click_at(100, 200)
     assert adapter._tree_cache is None
 
