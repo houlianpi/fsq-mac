@@ -6,6 +6,16 @@ The format is based on Keep a Changelog and the project follows semantic version
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-07
+
+### Fixed
+
+- Changed install command in README from `uv pip install` to `pip install` for broader accessibility.
+- Replaced PyPI-dependent badges with static versions so they render correctly before the package is published.
+- Fixed CI test `test_readme_prefers_pypi_install_for_users` to match updated install command.
+- Fixed CI test `test_app_activate_connected_returns_dict` failing on Linux by mocking the macOS-only `_wait_for_frontmost_app` call.
+- Added command timeout (`_run_with_timeout`, default 15s) to prevent `element click` and other driver operations from hanging indefinitely (closes #4).
+
 ## [0.2.0] - 2026-04-07
 
 ### Added
