@@ -638,6 +638,21 @@ class TestFind:
         assert status == "exactly_one_match"
         assert len(elements) == 1
 
+    def test_find_does_not_cache_actionable_state_or_require_frame_rpc(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.tag_name = "XCUIElementTypeButton"
+        type(mock_el).location = PropertyMock(side_effect=RuntimeError("slow frame rpc"))
+        type(mock_el).size = PropertyMock(side_effect=RuntimeError("slow frame rpc"))
+        mock_el.get_attribute.side_effect = lambda attr: {"name": "OK", "label": "OK"}.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        with patch("fsq_mac.adapters.appium_mac2.WebDriverWait") as mock_wait:
+            mock_wait.return_value.until.return_value = mock_el
+            status, elements = adapter_with_driver.find("OK")
+        assert status == "exactly_one_match"
+        assert len(elements) == 1
+        assert elements[0]["frame"] is None
+        assert adapter_with_driver._get_ref_cached_state("e0") is None
+
     def test_find_no_match(self, adapter_with_driver):
         with patch("fsq_mac.adapters.appium_mac2.WebDriverWait") as mock_wait:
             mock_wait.return_value.until.side_effect = Exception("not found")

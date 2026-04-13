@@ -44,10 +44,16 @@ def test_duplicate_name_elements_get_distinct_refs(mock_config):
     ref_e1 = adapter._element_refs.get("e1")
     assert ref_e0 is not None
     assert ref_e1 is not None
-    # Extract the actual WebElement from (generation, element, name) tuple
-    _, actual_e0, name_e0 = ref_e0
-    _, actual_e1, name_e1 = ref_e1
+    # Extract from (generation, element, name, frame, visible, enabled) tuple
+    _, actual_e0, name_e0, frame_e0, vis_e0, en_e0 = ref_e0
+    _, actual_e1, name_e1, frame_e1, vis_e1, en_e1 = ref_e1
     assert actual_e0 is web_el_0
     assert actual_e1 is web_el_1
     assert name_e0 == "5"
     assert name_e1 == "5"
+    assert frame_e0 == {"x": 0, "y": 0, "width": 50, "height": 50}
+    assert frame_e1 == {"x": 60, "y": 0, "width": 50, "height": 50}
+    assert vis_e0 is True
+    assert vis_e1 is True
+    assert en_e0 is True
+    assert en_e1 is True

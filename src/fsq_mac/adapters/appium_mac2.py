@@ -631,8 +631,11 @@ class AppiumMac2Adapter:
     def _invalidate_refs(self) -> None:
         self._snapshot_generation += 1
 
-    def _store_ref(self, eid: str, web_element, name: str | None = None) -> None:
-        self._element_refs[eid] = (self._snapshot_generation, web_element, name)
+    def _store_ref(self, eid: str, web_element, name: str | None = None,
+                   frame: dict | None = None, visible: bool = True,
+                   enabled: bool = True) -> None:
+        self._element_refs[eid] = (self._snapshot_generation, web_element, name,
+                                   frame, visible, enabled)
 
     def _get_ref(self, eid: str):
         """Return (element, error_code) for a stored ref.
@@ -643,11 +646,8 @@ class AppiumMac2Adapter:
         entry = self._element_refs.get(eid)
         if entry is None:
             return None, ErrorCode.ELEMENT_NOT_FOUND
-        # Support both (gen, el) and (gen, el, name) tuple formats
-        if len(entry) == 3:
-            gen, web_el, _name = entry
-        else:
-            gen, web_el = entry
+        # Support (gen, el), (gen, el, name), (gen, el, name, frame, vis, en)
+        gen, web_el = entry[0], entry[1]
         if gen != self._snapshot_generation:
             return None, ErrorCode.ELEMENT_REFERENCE_STALE
         # Quick liveness check
@@ -662,7 +662,21 @@ class AppiumMac2Adapter:
         entry = self._element_refs.get(eid)
         if entry is None or len(entry) < 3:
             return None
-        return entry[2]  # (generation, web_element, name)
+        return entry[2]  # (gen, web_el, name, ...)
+
+    def _get_ref_cached_state(self, eid: str) -> tuple[dict | None, bool, bool] | None:
+        """Return cached (frame, visible, enabled) from inspect-time XML data.
+
+        Returns None if no cached state is available (e.g., element found via
+        locator query rather than inspect).
+        """
+        entry = self._element_refs.get(eid)
+        if entry is None or len(entry) < 6:
+            return None
+        _gen, _el, _name, frame, visible, enabled = entry
+        if frame is None:
+            return None
+        return frame, visible, enabled
 
     # -- resolve ref: element_id or locator ---------------------------------
 
@@ -774,7 +788,33 @@ class AppiumMac2Adapter:
         except Exception:
             return True
 
-    def _wait_for_actionable(self, element, timeout: int = 5) -> dict | None:
+    def _ref_eid(self, ref: str | LocatorQuery) -> str | None:
+        """Extract element id string from a ref or LocatorQuery."""
+        if isinstance(ref, str):
+            return ref
+        if isinstance(ref, LocatorQuery):
+            return ref.ref
+        return None
+
+    def _wait_for_actionable(self, element, timeout: int = 5,
+                              cached_state: tuple[dict, bool, bool] | None = None) -> dict | None:
+        # Fast path: use cached state from inspect-time XML parse.
+        # The XML data was fetched alongside the WebElement refs, so it's
+        # as fresh as the refs themselves — no need for live RPC probes.
+        if cached_state is not None:
+            frame_dict, visible, enabled = cached_state
+            if visible and enabled and frame_dict:
+                logger.debug("_wait_for_actionable: using cached XML state (visible=%s, enabled=%s)", visible, enabled)
+                return None
+            # Cached state says not actionable — report immediately
+            checks = {"visible": visible, "enabled": enabled}
+            waiting_on = [name for name, ok in checks.items() if not ok]
+            return {
+                "error_code": ErrorCode.TIMEOUT,
+                "detail": f"Element not actionable (from cached state); waiting on {', '.join(waiting_on)}",
+            }
+
+        # Slow path: live probe via Appium RPC (for elements without cached state)
         deadline = time.monotonic() + timeout
         last_frame = None
         waiting_on = ["visible", "enabled", "stable"]
@@ -1000,7 +1040,9 @@ class AppiumMac2Adapter:
             for bind_idx, info in enumerate(elements):
                 if 0 <= info.doc_order_index < len(all_web_els):
                     wel = all_web_els[info.doc_order_index]
-                    self._store_ref(info.element_id, wel, name=info.name)
+                    self._store_ref(info.element_id, wel, name=info.name,
+                                    frame=info.frame, visible=info.visible,
+                                    enabled=info.enabled)
                     # Verify alignment on sampled elements only
                     if bind_idx in sample_indices:
                         try:
@@ -1066,8 +1108,6 @@ class AppiumMac2Adapter:
         result = []
         for i, wel in enumerate(web_els):
             eid = f"e{i}"
-            loc = wel.location
-            sz = wel.size
             el_name = ""
             el_label = ""
             try:
@@ -1082,8 +1122,7 @@ class AppiumMac2Adapter:
                 name=el_name or None,
                 label=el_label or None,
                 enabled=True,
-                frame={"x": loc.get("x", 0), "y": loc.get("y", 0),
-                       "width": sz.get("width", 0), "height": sz.get("height", 0)},
+                frame=None,
                 locator_hint=f"{strategy}:{value}",
             ).to_dict())
 
@@ -1094,13 +1133,20 @@ class AppiumMac2Adapter:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
             return {"error_code": err}
-        wait_error = self._wait_for_actionable(el, timeout)
+        # Look up cached XML state for element refs (e0, e1, ...)
+        eid = ref if isinstance(ref, str) else (ref.ref if isinstance(ref, LocatorQuery) else None)
+        cached_state = self._get_ref_cached_state(eid) if eid else None
+        wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
         if wait_error:
             logger.debug(
                 "click: _wait_for_actionable failed for ref=%s: %s", ref, wait_error,
             )
             return wait_error
-        fallback_frame = self._element_frame(el)
+        # Use cached frame from XML if available, otherwise query live
+        if cached_state is not None:
+            fallback_frame = _frame_to_tuple(cached_state[0]) or (0, 0, 0, 0)
+        else:
+            fallback_frame = self._element_frame(el)
         x, y, w, h = fallback_frame
         if h <= 1 or w <= 1:
             try:
@@ -1166,10 +1212,11 @@ class AppiumMac2Adapter:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
             return {"error_code": err}
-        wait_error = self._wait_for_actionable(el, timeout)
+        cached_state = self._get_ref_cached_state(self._ref_eid(ref))
+        wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
         if wait_error:
             return wait_error
-        frame = self._element_frame(el)
+        frame = _frame_to_tuple(cached_state[0]) if cached_state else self._element_frame(el)
         try:
             self._run_with_timeout(
                 lambda: ActionChains(self._driver).context_click(el).perform()
@@ -1187,10 +1234,11 @@ class AppiumMac2Adapter:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
             return {"error_code": err}
-        wait_error = self._wait_for_actionable(el, timeout)
+        cached_state = self._get_ref_cached_state(self._ref_eid(ref))
+        wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
         if wait_error:
             return wait_error
-        frame = self._element_frame(el)
+        frame = _frame_to_tuple(cached_state[0]) if cached_state else self._element_frame(el)
         try:
             def _do_double_click():
                 loc = el.location
@@ -1214,10 +1262,11 @@ class AppiumMac2Adapter:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return {"error_code": err}
-        wait_error = self._wait_for_actionable(el)
+        cached_state = self._get_ref_cached_state(self._ref_eid(ref))
+        wait_error = self._wait_for_actionable(el, cached_state=cached_state)
         if wait_error:
             return wait_error
-        frame = self._element_frame(el)
+        frame = _frame_to_tuple(cached_state[0]) if cached_state else self._element_frame(el)
         try:
             self._run_with_timeout(
                 lambda: ActionChains(self._driver).move_to_element(el).perform()
@@ -1235,10 +1284,11 @@ class AppiumMac2Adapter:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return {"error_code": err}
-        wait_error = self._wait_for_actionable(el)
+        cached_state = self._get_ref_cached_state(self._ref_eid(ref))
+        wait_error = self._wait_for_actionable(el, cached_state=cached_state)
         if wait_error:
             return wait_error
-        frame = self._element_frame(el)
+        frame = _frame_to_tuple(cached_state[0]) if cached_state else self._element_frame(el)
         try:
             def _do_type():
                 el.click()
@@ -1288,10 +1338,12 @@ class AppiumMac2Adapter:
             return {"error_code": err1, "detail": f"source: {source_ref}"}
         if err2:
             return {"error_code": err2, "detail": f"target: {target_ref}"}
-        wait_error = self._wait_for_actionable(src)
+        src_cached = self._get_ref_cached_state(self._ref_eid(source_ref))
+        tgt_cached = self._get_ref_cached_state(self._ref_eid(target_ref))
+        wait_error = self._wait_for_actionable(src, cached_state=src_cached)
         if wait_error:
             return wait_error
-        wait_error = self._wait_for_actionable(tgt)
+        wait_error = self._wait_for_actionable(tgt, cached_state=tgt_cached)
         if wait_error:
             return wait_error
         try:
