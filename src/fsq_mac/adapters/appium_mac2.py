@@ -158,12 +158,27 @@ def parse_ui_tree(page_source: str, max_elements: int = 200) -> list[ElementInfo
 
     idx = 0
     doc_idx = -1
+    skipped_tags: dict[str, int] = {}  # track skipped root/hierarchy tags
+    skipped_invisible = 0
+    skipped_unnamed_group = 0
+    total_xml_nodes = 0
+    is_first = True
     for elem in root.iter():
+        total_xml_nodes += 1
+        # Always skip the root element: XPath "//*" used for ref binding
+        # returns all descendants but excludes the root, so we must exclude
+        # it here to keep doc_order_index aligned with XPath results.
+        if is_first:
+            is_first = False
+            skipped_tags[elem.tag] = skipped_tags.get(elem.tag, 0) + 1
+            continue
         if elem.tag in ("AppiumAUT", "hierarchy"):
+            skipped_tags[elem.tag] = skipped_tags.get(elem.tag, 0) + 1
             continue
         doc_idx += 1
 
         if not _is_visible(elem.attrib):
+            skipped_invisible += 1
             continue
 
         role = elem.tag.replace("XCUIElementType", "")
@@ -175,6 +190,7 @@ def parse_ui_tree(page_source: str, max_elements: int = 200) -> list[ElementInfo
 
         # Skip elements without meaningful info
         if not name and not label and not value and role in ("Other", "Group"):
+            skipped_unnamed_group += 1
             continue
 
         eid = f"e{idx}"
@@ -197,6 +213,13 @@ def parse_ui_tree(page_source: str, max_elements: int = 200) -> list[ElementInfo
         if idx >= max_elements:
             break
 
+    logger.debug(
+        "parse_ui_tree: %d XML nodes total, %d elements returned, "
+        "skipped_tags=%s, skipped_invisible=%d, skipped_unnamed_group=%d, "
+        "max_doc_idx=%d",
+        total_xml_nodes, len(elements), skipped_tags,
+        skipped_invisible, skipped_unnamed_group, doc_idx,
+    )
     return elements
 
 
@@ -608,14 +631,23 @@ class AppiumMac2Adapter:
     def _invalidate_refs(self) -> None:
         self._snapshot_generation += 1
 
-    def _store_ref(self, eid: str, web_element) -> None:
-        self._element_refs[eid] = (self._snapshot_generation, web_element)
+    def _store_ref(self, eid: str, web_element, name: str | None = None) -> None:
+        self._element_refs[eid] = (self._snapshot_generation, web_element, name)
 
     def _get_ref(self, eid: str):
+        """Return (element, error_code) for a stored ref.
+
+        On stale ref, returns (None, ELEMENT_REFERENCE_STALE).
+        Callers can access stored_name via _get_ref_name() for fallback.
+        """
         entry = self._element_refs.get(eid)
         if entry is None:
             return None, ErrorCode.ELEMENT_NOT_FOUND
-        gen, web_el = entry
+        # Support both (gen, el) and (gen, el, name) tuple formats
+        if len(entry) == 3:
+            gen, web_el, _name = entry
+        else:
+            gen, web_el = entry
         if gen != self._snapshot_generation:
             return None, ErrorCode.ELEMENT_REFERENCE_STALE
         # Quick liveness check
@@ -624,6 +656,13 @@ class AppiumMac2Adapter:
             return web_el, None
         except Exception:
             return None, ErrorCode.ELEMENT_REFERENCE_STALE
+
+    def _get_ref_name(self, eid: str) -> str | None:
+        """Return the stored accessibility name for a ref (for stale fallback)."""
+        entry = self._element_refs.get(eid)
+        if entry is None or len(entry) < 3:
+            return None
+        return entry[2]  # (generation, web_element, name)
 
     # -- resolve ref: element_id or locator ---------------------------------
 
@@ -784,8 +823,19 @@ class AppiumMac2Adapter:
             el, err = self._get_ref(ref)
             if el is not None:
                 return el, None
-            # Fall through to locator if stale
+            # Stale ref — try to re-find by stored accessibility name
             if err == ErrorCode.ELEMENT_REFERENCE_STALE:
+                stored_name = self._get_ref_name(ref)
+                if stored_name:
+                    logger.debug(
+                        "resolve_ref: %s is stale, re-finding by accessibility_id '%s'",
+                        ref, stored_name,
+                    )
+                    locator = _resolve_locator("accessibility_id", stored_name)
+                    el = _select_best_element(self._driver, locator, "accessibility_id", stored_name)
+                    if el is not None:
+                        return el, None
+                    logger.debug("resolve_ref: re-find by name '%s' failed", stored_name)
                 return None, err
 
         # Locator-based resolution
@@ -938,9 +988,62 @@ class AppiumMac2Adapter:
             all_web_els = self._run_with_timeout(
                 lambda: self._driver.find_elements(AppiumBy.XPATH, "//*")
             )
-            for info in elements:
+            logger.debug(
+                "inspect ref-binding: %d parsed elements, %d XPath elements",
+                len(elements), len(all_web_els),
+            )
+            mismatches = []
+            detail_lines = []
+            # Only verify alignment for a sample (first 10 + last 3) to avoid slow RPC
+            sample_indices = set(range(min(10, len(elements))))
+            sample_indices.update(range(max(0, len(elements) - 3), len(elements)))
+            for bind_idx, info in enumerate(elements):
                 if 0 <= info.doc_order_index < len(all_web_els):
-                    self._store_ref(info.element_id, all_web_els[info.doc_order_index])
+                    wel = all_web_els[info.doc_order_index]
+                    self._store_ref(info.element_id, wel, name=info.name)
+                    # Verify alignment on sampled elements only
+                    if bind_idx in sample_indices:
+                        try:
+                            live_name = wel.get_attribute("name") or ""
+                            live_tag = getattr(wel, "tag_name", "").replace("XCUIElementType", "")
+                            xml_name = info.name or ""
+                            xml_role = info.role or ""
+                            matched = (live_tag == xml_role and live_name == xml_name)
+                            if not matched:
+                                mismatches.append(
+                                    f"{info.element_id}: XML({xml_role}/{xml_name}) "
+                                    f"!= WebEl({live_tag}/{live_name}) "
+                                    f"[doc_idx={info.doc_order_index}]"
+                                )
+                            detail_lines.append(
+                                f"{info.element_id}[doc_idx={info.doc_order_index}]: "
+                                f"XML({xml_role}/{xml_name}) -> "
+                                f"WebEl({live_tag}/{live_name}) "
+                                f"{'OK' if matched else 'MISMATCH'}"
+                            )
+                        except Exception as exc:
+                            detail_lines.append(
+                                f"{info.element_id}[doc_idx={info.doc_order_index}]: "
+                                f"XML({info.role}/{info.name}) -> "
+                                f"WebEl(ERROR: {exc})"
+                            )
+                else:
+                    logger.debug(
+                        "inspect ref-binding: %s doc_order_index=%d out of range (max=%d)",
+                        info.element_id, info.doc_order_index, len(all_web_els),
+                    )
+            if detail_lines:
+                logger.debug(
+                    "inspect ref-binding detail (sampled %d):\n  %s",
+                    len(detail_lines), "\n  ".join(detail_lines),
+                )
+            if mismatches:
+                logger.warning(
+                    "inspect ref-binding: %d MISMATCHES in %d sampled:\n  %s",
+                    len(mismatches), len(detail_lines), "\n  ".join(mismatches[:20]),
+                )
+            else:
+                logger.debug("inspect ref-binding: all %d sampled refs aligned OK", len(detail_lines))
         except TimeoutError:
             logger.warning("Timed out binding inspect element refs; returning parsed tree without refs")
         except Exception:
@@ -963,7 +1066,6 @@ class AppiumMac2Adapter:
         result = []
         for i, wel in enumerate(web_els):
             eid = f"e{i}"
-            self._store_ref(eid, wel)
             loc = wel.location
             sz = wel.size
             el_name = ""
@@ -973,6 +1075,7 @@ class AppiumMac2Adapter:
                 el_label = wel.get_attribute("label") or ""
             except Exception:
                 pass
+            self._store_ref(eid, wel, name=el_name or None)
             result.append(ElementInfo(
                 element_id=eid,
                 role=getattr(wel, "tag_name", "").replace("XCUIElementType", ""),
@@ -993,8 +1096,23 @@ class AppiumMac2Adapter:
             return {"error_code": err}
         wait_error = self._wait_for_actionable(el, timeout)
         if wait_error:
+            logger.debug(
+                "click: _wait_for_actionable failed for ref=%s: %s", ref, wait_error,
+            )
             return wait_error
         fallback_frame = self._element_frame(el)
+        x, y, w, h = fallback_frame
+        if h <= 1 or w <= 1:
+            try:
+                el_name = el.get_attribute("name") or ""
+                el_tag = getattr(el, "tag_name", "").replace("XCUIElementType", "")
+            except Exception:
+                el_name, el_tag = "?", "?"
+            logger.warning(
+                "click: degenerate frame for ref=%s (%s/%s): "
+                "x=%d y=%d w=%d h=%d — coordinate-based fallback will be unreliable",
+                ref, el_tag, el_name, x, y, w, h,
+            )
         try:
             self._run_with_timeout(
                 lambda: ActionChains(self._driver).move_to_element(el).click().perform()
