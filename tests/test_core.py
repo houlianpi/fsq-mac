@@ -170,9 +170,14 @@ class TestAppOps:
 class TestElementOps:
     def test_element_click_success(self, core_with_session):
         core, adapter = core_with_session
-        adapter.click.return_value = {}
+        adapter.click.return_value = {
+            "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
+            "center": {"x": 50, "y": 40},
+        }
         resp = core.element_click("e0")
         assert resp.ok is True
+        assert resp.data["element_bounds"]["width"] == 80
+        assert resp.data["center"] == {"x": 50, "y": 40}
 
     def test_element_click_lazy_locator(self, core_with_session):
         core, adapter = core_with_session
@@ -219,15 +224,23 @@ class TestElementOps:
 
     def test_element_right_click(self, core_with_session):
         core, adapter = core_with_session
-        adapter.right_click.return_value = {}
+        adapter.right_click.return_value = {
+            "element_bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+            "center": {"x": 2, "y": 4},
+        }
         resp = core.element_right_click("e0")
         assert resp.ok is True
+        assert resp.data["element_bounds"]["height"] == 4
 
     def test_element_double_click(self, core_with_session):
         core, adapter = core_with_session
-        adapter.double_click.return_value = {}
+        adapter.double_click.return_value = {
+            "element_bounds": {"x": 11, "y": 12, "width": 30, "height": 20},
+            "center": {"x": 26, "y": 22},
+        }
         resp = core.element_double_click("e0")
         assert resp.ok is True
+        assert resp.data["center"] == {"x": 26, "y": 22}
 
     def test_element_scroll(self, core_with_session):
         core, adapter = core_with_session
@@ -237,9 +250,13 @@ class TestElementOps:
 
     def test_element_hover(self, core_with_session):
         core, adapter = core_with_session
-        adapter.hover.return_value = {}
+        adapter.hover.return_value = {
+            "element_bounds": {"x": 4, "y": 5, "width": 10, "height": 12},
+            "center": {"x": 9, "y": 11},
+        }
         resp = core.element_hover("e0")
         assert resp.ok is True
+        assert resp.data["element_bounds"]["x"] == 4
 
     def test_element_drag(self, core_with_session):
         core, adapter = core_with_session
@@ -261,6 +278,34 @@ class TestAssertOps:
         resp = core.assert_visible(role="AXButton", name="Submit")
         assert resp.ok is True
 
+    def test_assert_app_running_success(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.app_list.return_value = [{"name": "Safari", "bundle_id": "com.apple.Safari"}]
+        resp = core.assert_app_running("com.apple.Safari")
+        assert resp.ok is True
+        assert resp.data["bundle_id"] == "com.apple.Safari"
+
+    def test_assert_app_running_failure(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.app_list.return_value = [{"name": "Finder", "bundle_id": "com.apple.finder"}]
+        resp = core.assert_app_running("com.apple.Safari")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.ASSERTION_FAILED
+
+    def test_assert_app_frontmost_success(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.app_current.return_value = {"name": "Safari", "bundle_id": "com.apple.Safari"}
+        resp = core.assert_app_frontmost("com.apple.Safari")
+        assert resp.ok is True
+        assert resp.data["bundle_id"] == "com.apple.Safari"
+
+    def test_assert_app_frontmost_failure(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.app_current.return_value = {"name": "Finder", "bundle_id": "com.apple.finder"}
+        resp = core.assert_app_frontmost("com.apple.Safari")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.ASSERTION_FAILED
+
     def test_assert_text_failure(self, core_with_session):
         core, adapter = core_with_session
         adapter.assert_text.return_value = {
@@ -275,9 +320,13 @@ class TestAssertOps:
 class TestInputOps:
     def test_input_key(self, core_with_session):
         core, adapter = core_with_session
-        adapter.input_key.return_value = {}
+        adapter.input_key.return_value = {
+            "element_bounds": {"x": 3, "y": 4, "width": 20, "height": 10},
+            "center": {"x": 13, "y": 9},
+        }
         resp = core.input_key("return")
         assert resp.ok is True
+        assert resp.data["element_bounds"]["x"] == 3
 
     def test_input_key_error(self, core_with_session):
         core, adapter = core_with_session
@@ -287,15 +336,23 @@ class TestInputOps:
 
     def test_input_hotkey(self, core_with_session):
         core, adapter = core_with_session
-        adapter.input_hotkey.return_value = {}
+        adapter.input_hotkey.return_value = {
+            "element_bounds": {"x": 1, "y": 2, "width": 30, "height": 20},
+            "center": {"x": 16, "y": 12},
+        }
         resp = core.input_hotkey("command+c")
         assert resp.ok is True
+        assert resp.data["center"] == {"x": 16, "y": 12}
 
     def test_input_text(self, core_with_session):
         core, adapter = core_with_session
-        adapter.input_text.return_value = {}
+        adapter.input_text.return_value = {
+            "element_bounds": {"x": 10, "y": 20, "width": 50, "height": 18},
+            "center": {"x": 35, "y": 29},
+        }
         resp = core.input_text("hello")
         assert resp.ok is True
+        assert resp.data["element_bounds"]["height"] == 18
 
     def test_input_click_at(self, core_with_session):
         core, adapter = core_with_session

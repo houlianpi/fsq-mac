@@ -175,6 +175,20 @@ class TestParserDomains:
         assert args.role == "AXButton"
         assert args.name == "Submit"
 
+    def test_assert_app_running(self):
+        parser = _build_parser()
+        args = parser.parse_args(["assert", "app-running", "com.apple.Safari"])
+        assert args.domain == "assert"
+        assert args.action == "app-running"
+        assert args.bundle_id == "com.apple.Safari"
+
+    def test_assert_app_frontmost(self):
+        parser = _build_parser()
+        args = parser.parse_args(["assert", "app-frontmost", "com.apple.Safari"])
+        assert args.domain == "assert"
+        assert args.action == "app-frontmost"
+        assert args.bundle_id == "com.apple.Safari"
+
     def test_menu_click(self):
         parser = _build_parser()
         args = parser.parse_args(["menu", "click", "File > Open"])
@@ -353,6 +367,28 @@ class TestRun:
         assert call_args[0] == ("assert", "visible")
         assert call_args[1]["role"] == "AXButton"
         assert call_args[1]["name"] == "Submit"
+
+    def test_run_maps_assert_app_running(self):
+        args = self._make_args(["assert", "app-running", "com.apple.Safari"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("assert", "app-running")
+        assert call_args[1]["bundle_id"] == "com.apple.Safari"
+
+    def test_run_maps_assert_app_frontmost(self):
+        args = self._make_args(["assert", "app-frontmost", "com.apple.Safari"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_args = mock_instance.call.call_args
+        assert call_args[0] == ("assert", "app-frontmost")
+        assert call_args[1]["bundle_id"] == "com.apple.Safari"
 
     def test_run_maps_menu_click(self):
         args = self._make_args(["menu", "click", "File > Open"])

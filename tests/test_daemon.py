@@ -172,6 +172,14 @@ class TestDispatch:
         resp = _dispatch(mock_core, "wait", "app", {"bundle_id": "com.test"}, None)
         assert resp is not None
 
+    def test_assert_app_running(self, mock_core):
+        resp = _dispatch(mock_core, "assert", "app-running", {"bundle_id": "com.test"}, None)
+        assert resp is not None
+
+    def test_assert_app_frontmost(self, mock_core):
+        resp = _dispatch(mock_core, "assert", "app-frontmost", {"bundle_id": "com.test"}, None)
+        assert resp is not None
+
     def test_unknown_command(self, mock_core):
         resp = _dispatch(mock_core, "unknown", "action", {}, None)
         assert resp.ok is False

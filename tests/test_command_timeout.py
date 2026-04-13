@@ -101,7 +101,10 @@ def test_click_recovers_via_coordinate_fallback_when_driver_click_hangs(adapter)
         mock_el.click.side_effect = lambda: time.sleep(5)
         with patch.object(adapter, "input_click_at", return_value={}) as mock_click_at:
             result = adapter.click("e0")
-    assert result == {}
+    assert result == {
+        "element_bounds": {"x": 10, "y": 10, "width": 20, "height": 20},
+        "center": {"x": 20, "y": 20},
+    }
     mock_click_at.assert_called_once()
 
 
@@ -132,7 +135,10 @@ def test_click_uses_cached_frame_for_coordinate_fallback(adapter):
             type(mock_el).location = PropertyMock(side_effect=[cached_location, RuntimeError("stale frame")])
             type(mock_el).size = PropertyMock(side_effect=[cached_size, RuntimeError("stale frame")])
             result = adapter.click("e0")
-    assert result == {}
+    assert result == {
+        "element_bounds": {"x": 10, "y": 10, "width": 20, "height": 20},
+        "center": {"x": 20, "y": 20},
+    }
     mock_click_at.assert_called_once_with(20, 20)
 
 

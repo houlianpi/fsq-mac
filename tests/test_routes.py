@@ -42,6 +42,8 @@ _ALL_COMMANDS = [
     ("assert", "enabled"),
     ("assert", "text"),
     ("assert", "value"),
+    ("assert", "app-running"),
+    ("assert", "app-frontmost"),
     # input
     ("input", "key"),
     ("input", "hotkey"),
@@ -108,6 +110,8 @@ def test_route_is_dispatched(domain, action):
     core.assert_enabled.return_value = resp
     core.assert_text.return_value = resp
     core.assert_value.return_value = resp
+    core.assert_app_running.return_value = resp
+    core.assert_app_frontmost.return_value = resp
     core.input_key.return_value = resp
     core.input_hotkey.return_value = resp
     core.input_text.return_value = resp

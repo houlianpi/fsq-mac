@@ -132,6 +132,10 @@ def _build_parser() -> argparse.ArgumentParser:
     assert_value.add_argument("expected", help="Expected value")
     assert_value.add_argument("ref", nargs="?", help="Element reference")
     _add_locator_flags(assert_value)
+    assert_app_running = asa.add_parser("app-running", help="Assert application is running")
+    assert_app_running.add_argument("bundle_id", help="Bundle ID")
+    assert_app_frontmost = asa.add_parser("app-frontmost", help="Assert application is frontmost")
+    assert_app_frontmost.add_argument("bundle_id", help="Bundle ID")
 
     # -- menu --
     menu = sub.add_parser("menu", help="Menu bar operations")
@@ -244,6 +248,8 @@ def _run(args: argparse.Namespace) -> dict:
             params["y"] = args.y
 
     elif domain == "assert":
+        if action in ("app-running", "app-frontmost"):
+            params["bundle_id"] = args.bundle_id
         if getattr(args, "ref", None):
             params["ref"] = args.ref
         if action in ("text", "value"):

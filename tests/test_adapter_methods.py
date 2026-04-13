@@ -157,10 +157,12 @@ class TestClick:
     def test_click_success(self, adapter_with_driver):
         mock_el = MagicMock()
         mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 50}
         adapter_with_driver._store_ref("e0", mock_el)
         with patch("time.sleep"), patch("fsq_mac.adapters.appium_mac2.ActionChains"):
             result = adapter_with_driver.click("e0")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 0, "y": 0, "width": 100, "height": 50}
+        assert result["center"] == {"x": 50, "y": 25}
 
     def test_click_not_found(self, adapter_with_driver):
         adapter_with_driver._driver.find_elements.return_value = []
@@ -172,13 +174,15 @@ class TestClick:
     def test_click_fallback(self, adapter_with_driver):
         mock_el = MagicMock()
         mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 1, "height": 1}
         adapter_with_driver._store_ref("e0", mock_el)
         # ActionChains fails, falls back to el.click()
         with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
             MockAC.return_value.move_to_element.return_value.click.return_value.perform.side_effect = Exception("fail")
             with patch("time.sleep"):
                 result = adapter_with_driver.click("e0")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 0, "y": 0, "width": 1, "height": 1}
+        assert result["center"] == {"x": 0, "y": 0}
 
     def test_click_falls_back_to_coordinate_click_when_driver_click_paths_fail(self, adapter_with_driver):
         mock_el = MagicMock()
@@ -191,7 +195,8 @@ class TestClick:
             with patch.object(adapter_with_driver, "input_click_at", return_value={}) as mock_click_at:
                 with patch("time.sleep"):
                     result = adapter_with_driver.click("e0")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 10, "y": 20, "width": 80, "height": 40}
+        assert result["center"] == {"x": 50, "y": 40}
         mock_click_at.assert_called_once_with(50, 40)
 
     def test_click_waits_for_actionable_query(self, adapter_with_driver):
@@ -209,7 +214,8 @@ class TestClick:
         adapter_with_driver._driver.find_elements.return_value = [mock_el]
         with patch("time.sleep"), patch("fsq_mac.adapters.appium_mac2.ActionChains"):
             result = adapter_with_driver.click(LocatorQuery(role="AXButton", name="Submit"))
-        assert result == {}
+        assert result["element_bounds"] == {"x": 10, "y": 20, "width": 80, "height": 30}
+        assert result["center"] == {"x": 50, "y": 35}
 
     def test_click_timeout_when_disabled(self, adapter_with_driver):
         mock_el = MagicMock()
@@ -233,11 +239,13 @@ class TestClick:
 class TestRightClick:
     def test_right_click_success(self, adapter_with_driver):
         mock_el = MagicMock()
-        mock_el.location = {"x": 0, "y": 0}
+        mock_el.location = {"x": 10, "y": 20}
+        mock_el.size = {"width": 30, "height": 40}
         adapter_with_driver._store_ref("e0", mock_el)
         with patch("time.sleep"), patch("fsq_mac.adapters.appium_mac2.ActionChains"):
             result = adapter_with_driver.right_click("e0")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 10, "y": 20, "width": 30, "height": 40}
+        assert result["center"] == {"x": 25, "y": 40}
 
     def test_right_click_error(self, adapter_with_driver):
         mock_el = MagicMock()
@@ -257,27 +265,33 @@ class TestDoubleClick:
         adapter_with_driver._store_ref("e0", mock_el)
         with patch("time.sleep"):
             result = adapter_with_driver.double_click("e0")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 10, "y": 20, "width": 100, "height": 50}
+        assert result["center"] == {"x": 60, "y": 45}
 
 
 class TestHover:
     def test_hover_success(self, adapter_with_driver):
         mock_el = MagicMock()
-        mock_el.location = {"x": 0, "y": 0}
+        mock_el.location = {"x": 5, "y": 6}
+        mock_el.size = {"width": 10, "height": 12}
         adapter_with_driver._store_ref("e0", mock_el)
         with patch("time.sleep"), patch("fsq_mac.adapters.appium_mac2.ActionChains"):
             result = adapter_with_driver.hover("e0", duration=0)
-        assert result == {}
+        assert result["element_bounds"] == {"x": 5, "y": 6, "width": 10, "height": 12}
+        assert result["center"] == {"x": 10, "y": 12}
 
 
 class TestTypeText:
     def test_type_verified(self, adapter_with_driver):
         mock_el = MagicMock()
-        mock_el.location = {"x": 0, "y": 0}
+        mock_el.location = {"x": 8, "y": 9}
+        mock_el.size = {"width": 60, "height": 20}
         mock_el.get_attribute.return_value = "hello"
         adapter_with_driver._store_ref("e0", mock_el)
         result = adapter_with_driver.type_text("e0", "hello")
         assert result["verified"] is True
+        assert result["element_bounds"] == {"x": 8, "y": 9, "width": 60, "height": 20}
+        assert result["center"] == {"x": 38, "y": 19}
 
     def test_type_mismatch(self, adapter_with_driver):
         mock_el = MagicMock()
@@ -316,8 +330,12 @@ class TestDrag:
 
 class TestInputKey:
     def test_input_key_success(self, adapter_with_driver):
+        adapter_with_driver._driver.page_source = (
+            "<AppiumAUT><XCUIElementTypeTextField focused='true' x='10' y='20' width='100' height='30'/></AppiumAUT>"
+        )
         result = adapter_with_driver.input_key("return")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 10, "y": 20, "width": 100, "height": 30}
+        assert result["center"] == {"x": 60, "y": 35}
         adapter_with_driver._driver.execute_script.assert_called()
 
     def test_input_key_space(self, adapter_with_driver):
@@ -332,9 +350,13 @@ class TestInputKey:
 
 class TestInputHotkey:
     def test_hotkey_command_c(self, adapter_with_driver):
+        adapter_with_driver._driver.page_source = (
+            "<AppiumAUT><XCUIElementTypeTextField focused='true' x='11' y='21' width='90' height='31'/></AppiumAUT>"
+        )
         with patch("time.sleep"):
             result = adapter_with_driver.input_hotkey("command+c")
-        assert result == {}
+        assert result["element_bounds"] == {"x": 11, "y": 21, "width": 90, "height": 31}
+        assert result["center"] == {"x": 56, "y": 36}
 
     def test_hotkey_shift_alt_fn(self, adapter_with_driver):
         with patch("time.sleep"):
@@ -349,6 +371,16 @@ class TestInputHotkey:
 
 class TestInputText:
     def test_input_text_success(self, adapter_with_driver):
+        adapter_with_driver._driver.page_source = (
+            "<AppiumAUT><XCUIElementTypeTextField focused='true' x='12' y='22' width='80' height='32'/></AppiumAUT>"
+        )
+        with patch("time.sleep"):
+            result = adapter_with_driver.input_text("hello")
+        assert result["element_bounds"] == {"x": 12, "y": 22, "width": 80, "height": 32}
+        assert result["center"] == {"x": 52, "y": 38}
+
+    def test_input_text_succeeds_without_focus_geometry(self, adapter_with_driver):
+        adapter_with_driver._driver.page_source = "<AppiumAUT><XCUIElementTypeWindow x='0' y='0' width='400' height='300'/></AppiumAUT>"
         with patch("time.sleep"):
             result = adapter_with_driver.input_text("hello")
         assert result == {}

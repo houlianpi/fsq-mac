@@ -387,7 +387,7 @@ class AutomationCore:
             return error_response("element.type", err_code, result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
         data = {}
-        for key in ("verified", "typed_value", "expected"):
+        for key in ("verified", "typed_value", "expected", "element_bounds", "center"):
             if key in result:
                 data[key] = result[key]
         # verified=False → typing succeeded but value doesn't match
@@ -439,7 +439,7 @@ class AutomationCore:
         if result.get("error_code"):
             return error_response("input.key", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
-        return success_response("input.key", session_id=active, meta=self._meta(t, active))
+        return success_response("input.key", data=result or None, session_id=active, meta=self._meta(t, active))
 
     def input_hotkey(self, combo: str, sid: str | None = None) -> Response:
         t = time.time()
@@ -450,7 +450,7 @@ class AutomationCore:
         if result.get("error_code"):
             return error_response("input.hotkey", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
-        return success_response("input.hotkey", session_id=active, meta=self._meta(t, active))
+        return success_response("input.hotkey", data=result or None, session_id=active, meta=self._meta(t, active))
 
     def input_text(self, text: str, sid: str | None = None) -> Response:
         t = time.time()
@@ -461,7 +461,7 @@ class AutomationCore:
         if result.get("error_code"):
             return error_response("input.text", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
-        return success_response("input.text", session_id=active, meta=self._meta(t, active))
+        return success_response("input.text", data=result or None, session_id=active, meta=self._meta(t, active))
 
     def input_click_at(self, x: int, y: int, sid: str | None = None) -> Response:
         t = time.time()
@@ -499,6 +499,35 @@ class AutomationCore:
 
     def assert_value(self, expected: str, ref: str | None = None, sid: str | None = None, **locator) -> Response:
         return self._assert_element("assert.value", "assert_value", expected=expected, sid=sid, ref=ref, **locator)
+
+    def assert_app_running(self, bundle_id: str, sid: str | None = None) -> Response:
+        t = time.time()
+        adapter, active, err = self._require_adapter("assert.app-running", sid)
+        if err:
+            return err
+        apps = adapter.app_list()
+        for app in apps:
+            if app.get("bundle_id") == bundle_id:
+                return success_response("assert.app-running", data={"bundle_id": bundle_id, "running": True},
+                                        session_id=active, meta=self._meta(t, active))
+        return error_response("assert.app-running", ErrorCode.ASSERTION_FAILED,
+                              f"App {bundle_id!r} is not running",
+                              session_id=active, meta=self._meta(t, active),
+                              details={"bundle_id": bundle_id, "running": False})
+
+    def assert_app_frontmost(self, bundle_id: str, sid: str | None = None) -> Response:
+        t = time.time()
+        adapter, active, err = self._require_adapter("assert.app-frontmost", sid)
+        if err:
+            return err
+        info = adapter.app_current()
+        if info.get("bundle_id") == bundle_id:
+            return success_response("assert.app-frontmost", data=info, session_id=active, meta=self._meta(t, active))
+        actual = info.get("bundle_id")
+        return error_response("assert.app-frontmost", ErrorCode.ASSERTION_FAILED,
+                              f"App {bundle_id!r} is not frontmost",
+                              session_id=active, meta=self._meta(t, active),
+                              details={"expected_bundle_id": bundle_id, "actual_bundle_id": actual})
 
     def menu_click(self, path: str, sid: str | None = None) -> Response:
         t = time.time()

@@ -45,12 +45,16 @@ def test_type_match_returns_success():
         "verified": True,
         "typed_value": "hello",
         "expected": "hello",
+        "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 30},
+        "center": {"x": 50, "y": 35},
     })
 
     resp = core.element_type("e0", "hello", sid="s1")
 
     assert resp.ok is True
     assert resp.data["verified"] is True
+    assert resp.data["element_bounds"]["width"] == 80
+    assert resp.data["center"] == {"x": 50, "y": 35}
 
 
 def test_type_unverifiable_returns_success():

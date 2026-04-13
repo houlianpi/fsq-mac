@@ -338,6 +338,10 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
             return core.assert_text(body.get("expected", ""), body.get("ref"), sid=sid, **locator)
         if action == "value":
             return core.assert_value(body.get("expected", ""), body.get("ref"), sid=sid, **locator)
+        if action == "app-running":
+            return core.assert_app_running(body.get("bundle_id", ""), sid=sid)
+        if action == "app-frontmost":
+            return core.assert_app_frontmost(body.get("bundle_id", ""), sid=sid)
 
     # -- menu --
     if domain == "menu":

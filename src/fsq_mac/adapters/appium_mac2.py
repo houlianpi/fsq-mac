@@ -118,6 +118,36 @@ def _parse_frame(attrib: dict) -> dict[str, int] | None:
         return None
 
 
+def _geometry_payload(frame: tuple[int, int, int, int]) -> dict[str, dict[str, int]]:
+    x, y, width, height = frame
+    return {
+        "element_bounds": {
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+        },
+        "center": {
+            "x": x + width // 2,
+            "y": y + height // 2,
+        },
+    }
+
+
+def _frame_to_tuple(frame: dict[str, int] | None) -> tuple[int, int, int, int] | None:
+    if not frame:
+        return None
+    try:
+        return (
+            int(frame.get("x", 0)),
+            int(frame.get("y", 0)),
+            int(frame.get("width", 0)),
+            int(frame.get("height", 0)),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_ui_tree(page_source: str, max_elements: int = 200) -> list[ElementInfo]:
     """Parse Appium XML page source into a list of ElementInfo."""
     elements: list[ElementInfo] = []
@@ -474,6 +504,23 @@ class AppiumMac2Adapter:
             pass
 
         return frame, visible, enabled
+
+    def _focused_geometry_payload(self) -> dict:
+        try:
+            page_source = self._get_page_source(force_refresh=True)
+            self._tree_cache = None
+            self._tree_cache_ts = 0.0
+            elements = parse_ui_tree(page_source, max_elements=200)
+        except Exception:
+            return {}
+        for element in elements:
+            if not element.focused:
+                continue
+            frame = _frame_to_tuple(element.frame)
+            if frame is None:
+                continue
+            return _geometry_payload(frame)
+        return {}
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -934,7 +981,7 @@ class AppiumMac2Adapter:
             time.sleep(self._delay_post_action)
             self._invalidate_refs()
             self._tree_cache = None
-            return {}
+            return _geometry_payload(fallback_frame)
 
         try:
             self._run_with_timeout(lambda: el.click())
@@ -946,7 +993,7 @@ class AppiumMac2Adapter:
             time.sleep(self._delay_post_action)
             self._invalidate_refs()
             self._tree_cache = None
-            return {}
+            return _geometry_payload(fallback_frame)
 
         try:
             x, y, width, height = fallback_frame
@@ -969,7 +1016,7 @@ class AppiumMac2Adapter:
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None
-        return {}
+        return _geometry_payload(fallback_frame)
 
     def right_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
@@ -978,6 +1025,7 @@ class AppiumMac2Adapter:
         wait_error = self._wait_for_actionable(el, timeout)
         if wait_error:
             return wait_error
+        frame = self._element_frame(el)
         try:
             self._run_with_timeout(
                 lambda: ActionChains(self._driver).context_click(el).perform()
@@ -989,7 +1037,7 @@ class AppiumMac2Adapter:
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None
-        return {}
+        return _geometry_payload(frame)
 
     def double_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
@@ -998,6 +1046,7 @@ class AppiumMac2Adapter:
         wait_error = self._wait_for_actionable(el, timeout)
         if wait_error:
             return wait_error
+        frame = self._element_frame(el)
         try:
             def _do_double_click():
                 loc = el.location
@@ -1015,7 +1064,7 @@ class AppiumMac2Adapter:
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None
-        return {}
+        return _geometry_payload(frame)
 
     def hover(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
         el, err = self._resolve_ref(ref, strategy)
@@ -1024,6 +1073,7 @@ class AppiumMac2Adapter:
         wait_error = self._wait_for_actionable(el)
         if wait_error:
             return wait_error
+        frame = self._element_frame(el)
         try:
             self._run_with_timeout(
                 lambda: ActionChains(self._driver).move_to_element(el).perform()
@@ -1034,7 +1084,7 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
-        return {}
+        return _geometry_payload(frame)
 
     def type_text(self, ref: str | LocatorQuery, text: str, strategy: str = "accessibility_id") -> dict:
         el, err = self._resolve_ref(ref, strategy)
@@ -1043,6 +1093,7 @@ class AppiumMac2Adapter:
         wait_error = self._wait_for_actionable(el)
         if wait_error:
             return wait_error
+        frame = self._element_frame(el)
         try:
             def _do_type():
                 el.click()
@@ -1058,7 +1109,7 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         # Verify the typed value
-        result = {"expected": text}
+        result = {"expected": text, **_geometry_payload(frame)}
         try:
             actual = el.get_attribute("value")
             if actual is None:
@@ -1121,7 +1172,7 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
         self._tree_cache = None
-        return {}
+        return self._focused_geometry_payload()
 
     def input_hotkey(self, combo: str) -> dict:
         key_mapping = {
@@ -1150,7 +1201,7 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
         self._tree_cache = None
-        return {}
+        return self._focused_geometry_payload()
 
     def input_text(self, text: str) -> dict:
         try:
@@ -1159,7 +1210,7 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
         self._tree_cache = None
-        return {}
+        return self._focused_geometry_payload()
 
     def input_click_at(self, x: int, y: int) -> dict:
         try:

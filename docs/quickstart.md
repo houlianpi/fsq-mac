@@ -62,6 +62,10 @@ mac app list
 
 # Get the frontmost app
 mac app current
+
+# Verify app state
+mac assert app-running com.apple.Safari
+mac assert app-frontmost com.apple.Safari
 ```
 
 ### 4. Inspect the UI

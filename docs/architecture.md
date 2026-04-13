@@ -103,8 +103,10 @@ Every API response follows a consistent structure:
   "error": {
     "code": "ELEMENT_NOT_FOUND",
     "message": "...",
-    "retryable": false,
-    "suggested_next_action": "mac element inspect"
+    "retryable": true,
+    "details": {},
+    "suggested_next_action": "mac element inspect",
+    "doctor_hint": null
   },
   "meta": {
     "backend": "appium_mac2",
@@ -115,6 +117,54 @@ Every API response follows a consistent structure:
   }
 }
 ```
+
+For non-zero command failures, the CLI keeps the same top-level envelope shape and returns a populated `error` object with these machine-consumable fields:
+
+- `error.code`
+- `error.message`
+- `error.retryable`
+- `error.details`
+- `error.suggested_next_action`
+- `error.doctor_hint`
+
+Consumers should treat this JSON structure as the stable failure contract for CLI and daemon responses.
+
+## Error taxonomy
+
+`fsq-mac` exposes a stable top-level error code taxonomy through `models.py:ErrorCode`.
+
+Common codes and their intended meaning:
+
+| Code | Category | Meaning | Retryable |
+|------|----------|---------|-----------|
+| `SESSION_NOT_FOUND` | precondition | No active session exists for a command that requires one | usually no |
+| `SESSION_CONFLICT` | precondition | Session state conflict that may be recoverable by retrying or choosing a different session | yes |
+| `BACKEND_UNAVAILABLE` | environment/backend | Appium server, Mac2 driver, or backend connectivity is unavailable | yes |
+| `WINDOW_NOT_FOUND` | observation | The requested window could not be found | yes |
+| `ELEMENT_NOT_FOUND` | observation | The requested element could not be found | yes |
+| `ELEMENT_REFERENCE_STALE` | observation | A previously returned element ref is no longer valid | yes |
+| `ACTION_BLOCKED` | safety/precondition | The command is blocked by an explicit safety requirement | no |
+| `INVALID_ARGUMENT` | caller/input | The command arguments are invalid | no |
+| `ASSERTION_FAILED` | assertion | The target element exists, but the asserted state/value is wrong | no |
+| `TIMEOUT` | timing/environment | The target state did not become true before the timeout | yes |
+| `INTERNAL_ERROR` | runtime/internal | The backend or runtime hit an unexpected failure | no |
+
+Other `ErrorCode` values may appear for narrower situations, but consumers should prefer `error.code` over parsing free-form text.
+
+## Retryable semantics
+
+`error.retryable` is derived from the top-level error code, not from the message text.
+
+Current retryable set:
+
+- `SESSION_CONFLICT`
+- `BACKEND_UNAVAILABLE`
+- `WINDOW_NOT_FOUND`
+- `ELEMENT_NOT_FOUND`
+- `ELEMENT_REFERENCE_STALE`
+- `TIMEOUT`
+
+Treat `error.retryable` as the intended orchestration signal for whether a retry or refresh strategy is usually reasonable. It is a product-level hint, not a guarantee that retrying will succeed in every environment.
 
 ## Performance optimization
 

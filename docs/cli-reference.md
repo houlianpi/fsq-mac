@@ -8,6 +8,49 @@ Global flags available on all commands:
 - `--sid <session-id>` — target a specific session
 - `--verbose` / `--debug` — logging verbosity
 
+## Error handling
+
+All commands return a stable top-level JSON envelope. On failure, the CLI keeps the same envelope shape and populates `error` with machine-consumable fields:
+
+- `code`
+- `message`
+- `retryable`
+- `details`
+- `suggested_next_action`
+- `doctor_hint`
+
+Example failure response:
+
+```json
+{
+  "ok": false,
+  "command": "element.find",
+  "session_id": "s1",
+  "data": null,
+  "error": {
+    "code": "ELEMENT_NOT_FOUND",
+    "message": "Element 'Submit' not found",
+    "retryable": true,
+    "details": {},
+    "suggested_next_action": "mac element inspect",
+    "doctor_hint": null
+  },
+  "meta": {
+    "backend": "appium_mac2",
+    "duration_ms": 42,
+    "timestamp": "2026-04-13T00:00:00Z",
+    "frontmost_app": "com.apple.Safari",
+    "frontmost_window": "Example"
+  }
+}
+```
+
+Recommended consumer interpretation:
+
+- use `error.code` for control flow, not regexes over `message`
+- use `error.retryable` as the primary retry hint
+- use `suggested_next_action` and `doctor_hint` as operator guidance, not as required fields
+
 ## session
 
 | Command | Description | Safety |
@@ -106,12 +149,16 @@ All assert commands accept locator flags: `--id`, `--role`, `--name`, `--label`,
 | `mac assert enabled` | Assert element is enabled | SAFE |
 | `mac assert text <text>` | Assert element text matches | SAFE |
 | `mac assert value <value>` | Assert element value matches | SAFE |
+| `mac assert app-running <bundle_id>` | Assert application is running | SAFE |
+| `mac assert app-frontmost <bundle_id>` | Assert application is frontmost | SAFE |
 
 ```bash
 mac assert visible --role AXButton --name OK
 mac assert enabled --role AXTextField
 mac assert text "Hello" --role AXStaticText
 mac assert value "42" --role AXTextField
+mac assert app-running com.apple.Safari
+mac assert app-frontmost com.apple.Safari
 ```
 
 ## menu
@@ -173,6 +220,13 @@ mac capture ui-tree
 | `mac wait app <bundle_id>` | Wait for application to start | SAFE |
 
 All wait commands accept `--timeout <ms>` (default: 10000) and `--strategy <strategy>`.
+
+For app-level verification, use these semantics:
+
+- `mac wait app <bundle_id>` is the canonical running-verification primitive when you want to assert that an app becomes available within a timeout window
+- `mac assert app-running <bundle_id>` is the immediate assertion form for "this app should already be running"
+- `mac assert app-frontmost <bundle_id>` is the immediate assertion form for "this app should already be frontmost"
+- `mac app current` and `mac app list` remain stable structured query surfaces when the calling framework wants to implement its own logic
 
 ```bash
 mac wait element "OK" --timeout 5000
