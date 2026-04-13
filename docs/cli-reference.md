@@ -119,9 +119,16 @@ mac element inspect --pretty
 mac element find --role AXButton
 mac element click --role AXButton --name OK
 mac element type "hello world" --role AXTextField
+mac element type "hello world" --role AXTextField --input-method keys
 mac element scroll down --role AXScrollArea
 mac element right-click --name "File"
 ```
+
+Text-writing commands support `--input-method paste|keys|auto`.
+
+- `paste` is the default and inserts final text via clipboard plus paste hotkey
+- `keys` preserves synthetic key injection for flows that need key-event semantics
+- `auto` currently behaves the same as `paste`
 
 ## input
 
@@ -136,6 +143,7 @@ mac element right-click --name "File"
 mac input key Return
 mac input hotkey cmd+c
 mac input text "hello world"
+mac input text "hello world" --input-method keys
 mac input click-at 100 200
 ```
 

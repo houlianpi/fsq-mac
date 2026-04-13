@@ -375,13 +375,13 @@ class AutomationCore:
         return self._element_action("element.double-click", query, adapter.double_click, strategy, sid)
 
     def element_type(self, ref: str | None, text: str, strategy: str = "accessibility_id",
-                     sid: str | None = None, **locator) -> Response:
+                     sid: str | None = None, input_method: str = "paste", **locator) -> Response:
         t = time.time()
         adapter, active, err = self._require_adapter("element.type", sid)
         if err:
             return err
         query = self._query_from_args(ref=ref, **locator)
-        result = adapter.type_text(query, text, strategy=strategy)
+        result = adapter.type_text(query, text, strategy=strategy, input_method=input_method)
         err_code = result.get("error_code")
         if err_code:
             return error_response("element.type", err_code, result.get("detail", ""),
@@ -452,12 +452,12 @@ class AutomationCore:
                                   session_id=active, meta=self._meta(t, active))
         return success_response("input.hotkey", data=result or None, session_id=active, meta=self._meta(t, active))
 
-    def input_text(self, text: str, sid: str | None = None) -> Response:
+    def input_text(self, text: str, sid: str | None = None, input_method: str = "paste") -> Response:
         t = time.time()
         adapter, active, err = self._require_adapter("input.text", sid)
         if err:
             return err
-        result = adapter.input_text(text)
+        result = adapter.input_text(text, input_method=input_method)
         if result.get("error_code"):
             return error_response("input.text", result["error_code"], result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))

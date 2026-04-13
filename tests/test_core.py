@@ -353,6 +353,14 @@ class TestInputOps:
         resp = core.input_text("hello")
         assert resp.ok is True
         assert resp.data["element_bounds"]["height"] == 18
+        adapter.input_text.assert_called_once_with("hello", input_method="paste")
+
+    def test_input_text_with_input_method(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.input_text.return_value = {}
+        resp = core.input_text("hello", input_method="keys")
+        assert resp.ok is True
+        adapter.input_text.assert_called_once_with("hello", input_method="keys")
 
     def test_input_click_at(self, core_with_session):
         core, adapter = core_with_session

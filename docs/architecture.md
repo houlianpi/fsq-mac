@@ -65,6 +65,12 @@ Adapters implement a set of methods for automation:
 - **Assert**: `assert_visible()`, `assert_enabled()`, `assert_text()`, `assert_value()`
 - **Capture**: `screenshot()`, `ui_tree()`
 
+For text-writing operations, the adapter now exposes an explicit input-strategy choice.
+
+- default behavior is stable final-text insertion via paste-first input
+- `keys` remains available for flows that need synthetic key-event semantics
+- first-version `auto` behaves the same as `paste`
+
 The adapter registry (`adapters/__init__.py`) maps backend names to factory callables. Third-party adapters can register via Python entry points.
 
 ## Safety classification

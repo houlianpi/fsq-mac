@@ -99,6 +99,12 @@ class TestParserDomains:
         args = parser.parse_args(["element", "type", "e0", "hello"])
         assert args.ref == "e0"
         assert args.text == "hello"
+        assert args.input_method == "paste"
+
+    def test_element_type_with_input_method(self):
+        parser = _build_parser()
+        args = parser.parse_args(["element", "type", "e0", "hello", "--input-method", "keys"])
+        assert args.input_method == "keys"
 
     def test_element_scroll(self):
         parser = _build_parser()
@@ -131,6 +137,12 @@ class TestParserDomains:
         parser = _build_parser()
         args = parser.parse_args(["input", "text", "hello"])
         assert args.text == "hello"
+        assert args.input_method == "paste"
+
+    def test_input_text_with_input_method(self):
+        parser = _build_parser()
+        args = parser.parse_args(["input", "text", "hello", "--input-method", "keys"])
+        assert args.input_method == "keys"
 
     def test_capture_screenshot(self):
         parser = _build_parser()
@@ -302,6 +314,17 @@ class TestRun:
         call_kwargs = mock_instance.call.call_args[1]
         assert call_kwargs["ref"] == "e0"
         assert call_kwargs["text"] == "hello"
+        assert call_kwargs["input_method"] == "paste"
+
+    def test_run_maps_element_type_with_input_method(self):
+        args = self._make_args(["element", "type", "e0", "hello", "--input-method", "keys"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_kwargs = mock_instance.call.call_args[1]
+        assert call_kwargs["input_method"] == "keys"
 
     def test_run_maps_element_scroll(self):
         args = self._make_args(["element", "scroll", "e0", "up"])
@@ -453,6 +476,17 @@ class TestRun:
             _run(args)
         call_kwargs = mock_instance.call.call_args[1]
         assert call_kwargs["text"] == "hello"
+        assert call_kwargs["input_method"] == "paste"
+
+    def test_run_maps_input_text_with_input_method(self):
+        args = self._make_args(["input", "text", "hello", "--input-method", "keys"])
+        with patch("fsq_mac.cli.DaemonClient") as MockClient:
+            mock_instance = MagicMock()
+            mock_instance.call.return_value = {"ok": True}
+            MockClient.return_value = mock_instance
+            _run(args)
+        call_kwargs = mock_instance.call.call_args[1]
+        assert call_kwargs["input_method"] == "keys"
 
     def test_run_maps_capture_screenshot(self):
         args = self._make_args(["capture", "screenshot", "/tmp/s.png"])

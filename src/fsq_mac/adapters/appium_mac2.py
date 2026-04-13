@@ -522,6 +522,32 @@ class AppiumMac2Adapter:
             return _geometry_payload(frame)
         return {}
 
+    def _get_clipboard_text(self) -> str:
+        result = subprocess.run(["pbpaste"], capture_output=True, text=True, check=True)
+        return result.stdout
+
+    def _set_clipboard_text(self, text: str) -> None:
+        subprocess.run(["pbcopy"], input=text, text=True, check=True)
+
+    def _paste_via_hotkey(self) -> None:
+        hotkey_result = self.input_hotkey("command+v")
+        if hotkey_result.get("error_code"):
+            raise RuntimeError(hotkey_result.get("detail") or "Paste hotkey failed")
+
+    def _input_text_via_paste(self, text: str) -> None:
+        clipboard_before = self._get_clipboard_text()
+        restore_error: Exception | None = None
+        try:
+            self._set_clipboard_text(text)
+            self._paste_via_hotkey()
+        finally:
+            try:
+                self._set_clipboard_text(clipboard_before)
+            except Exception as exc:
+                restore_error = exc
+        if restore_error:
+            logger.warning("Failed to restore clipboard after paste input: %s", restore_error)
+
     # -- lifecycle ----------------------------------------------------------
 
     def connect(self, bundle_id: str | None = None) -> None:
@@ -1086,7 +1112,8 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         return _geometry_payload(frame)
 
-    def type_text(self, ref: str | LocatorQuery, text: str, strategy: str = "accessibility_id") -> dict:
+    def type_text(self, ref: str | LocatorQuery, text: str, strategy: str = "accessibility_id",
+                  input_method: str = "paste") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return {"error_code": err}
@@ -1098,11 +1125,13 @@ class AppiumMac2Adapter:
             def _do_type():
                 el.click()
                 el.clear()
-                try:
-                    el.send_keys(text)
-                except Exception:
-                    # Fallback to macos: keys only when send_keys fails (#9)
-                    self._driver.execute_script("macos: keys", {"keys": list(text)})
+                if input_method == "keys":
+                    try:
+                        el.send_keys(text)
+                    except Exception:
+                        self._driver.execute_script("macos: keys", {"keys": list(text)})
+                else:
+                    self._input_text_via_paste(text)
             self._run_with_timeout(_do_type)
         except TimeoutError as exc:
             return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
@@ -1223,10 +1252,13 @@ class AppiumMac2Adapter:
         self._tree_cache = None
         return self._focused_geometry_payload()
 
-    def input_text(self, text: str) -> dict:
+    def input_text(self, text: str, input_method: str = "paste") -> dict:
         try:
             time.sleep(self._delay_pre_input)
-            self._driver.execute_script("macos: keys", {"keys": list(text)})
+            if input_method == "keys":
+                self._driver.execute_script("macos: keys", {"keys": list(text)})
+            else:
+                self._input_text_via_paste(text)
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
         self._tree_cache = None

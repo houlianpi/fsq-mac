@@ -25,6 +25,15 @@ def _add_locator_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--xpath", help="Raw XPath locator")
 
 
+def _add_input_method_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--input-method",
+        choices=["paste", "keys", "auto"],
+        default="paste",
+        help="Text input strategy (default: paste)",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="mac",
@@ -89,6 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     etype = ea.add_parser("type", help="Type text into an element")
     etype.add_argument("ref", nargs="?", help="Element reference")
     etype.add_argument("text", help="Text to type")
+    _add_input_method_flag(etype)
     _add_locator_flags(etype)
     scroll = ea.add_parser("scroll", help="Scroll an element")
     scroll.add_argument("ref", nargs="?", help="Element reference")
@@ -111,6 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
     hotkey.add_argument("combo", help="Combo (e.g. command+c)")
     text = ia.add_parser("text", help="Type text to focused element")
     text.add_argument("text", help="Text to type")
+    _add_input_method_flag(text)
     click_at = ia.add_parser("click-at", help="Click at screen coordinates")
     click_at.add_argument("x", type=int, help="Screen x coordinate")
     click_at.add_argument("y", type=int, help="Screen y coordinate")
@@ -228,6 +239,7 @@ def _run(args: argparse.Namespace) -> dict:
             if args.ref:
                 params["ref"] = args.ref
             params["text"] = args.text
+            params["input_method"] = args.input_method
         elif action == "scroll":
             if args.ref:
                 params["ref"] = args.ref
@@ -243,6 +255,7 @@ def _run(args: argparse.Namespace) -> dict:
             params["combo"] = args.combo
         elif action == "text":
             params["text"] = args.text
+            params["input_method"] = args.input_method
         elif action == "click-at":
             params["x"] = args.x
             params["y"] = args.y

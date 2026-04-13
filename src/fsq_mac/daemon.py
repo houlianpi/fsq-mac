@@ -306,7 +306,14 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
             return core.element_double_click(ref or None, strategy, sid, **locator)
         if action == "type":
             text = body.get("text", "")
-            return core.element_type(ref or None, text, strategy, sid, **locator)
+            return core.element_type(
+                ref or None,
+                text,
+                strategy,
+                sid,
+                input_method=body.get("input_method", "paste"),
+                **locator,
+            )
         if action == "scroll":
             direction = body.get("direction", "down")
             return core.element_scroll(ref or None, direction, strategy, sid, **locator)
@@ -323,7 +330,7 @@ def _dispatch(core: AutomationCore, domain: str, action: str, body: dict, sid: s
         if action == "hotkey":
             return core.input_hotkey(body.get("combo", ""), sid)
         if action == "text":
-            return core.input_text(body.get("text", ""), sid)
+            return core.input_text(body.get("text", ""), sid, input_method=body.get("input_method", "paste"))
         if action == "click-at":
             return core.input_click_at(body.get("x", 0), body.get("y", 0), sid)
 

@@ -288,18 +288,33 @@ class TestTypeText:
         mock_el.size = {"width": 60, "height": 20}
         mock_el.get_attribute.return_value = "hello"
         adapter_with_driver._store_ref("e0", mock_el)
-        result = adapter_with_driver.type_text("e0", "hello")
+        with patch.object(adapter_with_driver, "_input_text_via_paste", return_value=None) as mock_paste:
+            result = adapter_with_driver.type_text("e0", "hello")
         assert result["verified"] is True
         assert result["element_bounds"] == {"x": 8, "y": 9, "width": 60, "height": 20}
         assert result["center"] == {"x": 38, "y": 19}
+        mock_paste.assert_called_once_with("hello")
 
     def test_type_mismatch(self, adapter_with_driver):
         mock_el = MagicMock()
         mock_el.location = {"x": 0, "y": 0}
         mock_el.get_attribute.return_value = "wrong"
         adapter_with_driver._store_ref("e0", mock_el)
-        result = adapter_with_driver.type_text("e0", "hello")
+        with patch.object(adapter_with_driver, "_input_text_via_paste", return_value=None):
+            result = adapter_with_driver.type_text("e0", "hello")
         assert result["verified"] is False
+
+    def test_type_text_keys_mode_preserves_send_keys_path(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 10, "height": 10}
+        mock_el.get_attribute.return_value = "hello"
+        adapter_with_driver._store_ref("e0", mock_el)
+        with patch.object(adapter_with_driver, "_input_text_via_paste", return_value=None) as mock_paste:
+            result = adapter_with_driver.type_text("e0", "hello", input_method="keys")
+        assert result["verified"] is True
+        mock_el.send_keys.assert_called_once_with("hello")
+        mock_paste.assert_not_called()
 
 
 class TestScroll:
@@ -411,16 +426,34 @@ class TestInputText:
         adapter_with_driver._driver.page_source = (
             "<AppiumAUT><XCUIElementTypeTextField focused='true' x='12' y='22' width='80' height='32'/></AppiumAUT>"
         )
-        with patch("time.sleep"):
+        with patch("time.sleep"), patch.object(adapter_with_driver, "_input_text_via_paste", return_value=None) as mock_paste:
             result = adapter_with_driver.input_text("hello")
         assert result["element_bounds"] == {"x": 12, "y": 22, "width": 80, "height": 32}
         assert result["center"] == {"x": 52, "y": 38}
+        mock_paste.assert_called_once_with("hello")
 
     def test_input_text_succeeds_without_focus_geometry(self, adapter_with_driver):
         adapter_with_driver._driver.page_source = "<AppiumAUT><XCUIElementTypeWindow x='0' y='0' width='400' height='300'/></AppiumAUT>"
-        with patch("time.sleep"):
+        with patch("time.sleep"), patch.object(adapter_with_driver, "_input_text_via_paste", return_value=None):
             result = adapter_with_driver.input_text("hello")
         assert result == {}
+
+    def test_input_text_keys_mode_preserves_key_injection(self, adapter_with_driver):
+        with patch("time.sleep"), patch.object(adapter_with_driver, "_input_text_via_paste", return_value=None) as mock_paste:
+            result = adapter_with_driver.input_text("hello", input_method="keys")
+        assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_once_with("macos: keys", {"keys": list("hello")})
+        mock_paste.assert_not_called()
+
+    def test_input_text_via_paste_restores_clipboard(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_get_clipboard_text", return_value="before") as mock_get_clipboard, \
+             patch.object(adapter_with_driver, "_set_clipboard_text") as mock_set_clipboard, \
+             patch.object(adapter_with_driver, "_paste_via_hotkey") as mock_paste:
+            adapter_with_driver._input_text_via_paste("hello")
+        mock_get_clipboard.assert_called_once_with()
+        assert mock_set_clipboard.call_args_list[0].args == ("hello",)
+        assert mock_set_clipboard.call_args_list[1].args == ("before",)
+        mock_paste.assert_called_once_with()
 
 
 class TestPhase2Methods:

@@ -87,8 +87,14 @@ mac element click --role AXButton --name OK
 # Type text into a field
 mac element type "hello world" --role AXTextField
 
+# Force key-injection mode when you need key-event semantics
+mac element type "hello world" --role AXTextField --input-method keys
+
 # Press a key
 mac input key Return
+
+# Type into the focused element using the default paste-first path
+mac input text "hello world"
 ```
 
 ### 6. End the session

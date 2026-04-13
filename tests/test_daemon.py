@@ -116,6 +116,11 @@ class TestDispatch:
         resp = _dispatch(mock_core, "element", "type", {"ref": "x", "text": "hi"}, None)
         assert resp is not None
 
+    def test_element_type_with_input_method(self, mock_core):
+        with patch.object(mock_core, "element_type", wraps=mock_core.element_type) as mock_element_type:
+            _dispatch(mock_core, "element", "type", {"ref": "x", "text": "hi", "input_method": "keys"}, None)
+        assert mock_element_type.call_args.kwargs["input_method"] == "keys"
+
     def test_element_scroll(self, mock_core):
         resp = _dispatch(mock_core, "element", "scroll", {"ref": "x"}, None)
         assert resp is not None
@@ -139,6 +144,12 @@ class TestDispatch:
     def test_input_text(self, mock_core):
         resp = _dispatch(mock_core, "input", "text", {"text": "hi"}, None)
         assert resp is not None
+
+    def test_input_text_with_input_method(self, mock_core):
+        with patch.object(mock_core, "input_text", wraps=mock_core.input_text) as mock_input_text:
+            resp = _dispatch(mock_core, "input", "text", {"text": "hi", "input_method": "keys"}, None)
+        assert resp is not None
+        assert mock_input_text.call_args.kwargs["input_method"] == "keys"
 
     def test_capture_screenshot(self, mock_core):
         resp = _dispatch(mock_core, "capture", "screenshot", {"path": "x.png"}, None)
