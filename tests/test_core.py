@@ -499,6 +499,13 @@ class TestWindowOps:
         resp = core.window_focus(0)
         assert resp.ok is True
 
+    def test_window_focus_updates_frontmost_window(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.window_focus.return_value = {"focused": 1, "title": "New Window"}
+        resp = core.window_focus(1)
+        assert resp.ok is True
+        assert resp.meta.frontmost_window == "New Window"
+
     def test_window_focus_error(self, core_with_session):
         core, adapter = core_with_session
         adapter.window_focus.return_value = {"error_code": ErrorCode.WINDOW_NOT_FOUND, "detail": "bad index"}

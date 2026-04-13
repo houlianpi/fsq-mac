@@ -1165,6 +1165,16 @@ class AppiumMac2Adapter:
         key_mapping = {
             "return": "\n", "enter": "\n", "space": " ", "tab": "\t",
             "escape": "\x1b", "backspace": "\x08", "delete": "\x7f",
+            # Arrow keys (XCUITest key constants)
+            "up": "\uF700", "down": "\uF701",
+            "left": "\uF702", "right": "\uF703",
+            # Navigation keys
+            "home": "\uF729", "end": "\uF72B",
+            "pageup": "\uF72C", "pagedown": "\uF72D",
+            # Function keys
+            "f1": "\uF704", "f2": "\uF705", "f3": "\uF706", "f4": "\uF707",
+            "f5": "\uF708", "f6": "\uF709", "f7": "\uF70A", "f8": "\uF70B",
+            "f9": "\uF70C", "f10": "\uF70D", "f11": "\uF70E", "f12": "\uF70F",
         }
         mapped = key_mapping.get(key.lower(), key)
         try:
@@ -1178,6 +1188,16 @@ class AppiumMac2Adapter:
         key_mapping = {
             "return": "\n", "enter": "\n", "space": " ", "tab": "\t",
             "escape": "\x1b", "backspace": "\x08", "delete": "\x7f",
+            # Arrow keys (XCUITest key constants)
+            "up": "\uF700", "down": "\uF701",
+            "left": "\uF702", "right": "\uF703",
+            # Navigation keys
+            "home": "\uF729", "end": "\uF72B",
+            "pageup": "\uF72C", "pagedown": "\uF72D",
+            # Function keys
+            "f1": "\uF704", "f2": "\uF705", "f3": "\uF706", "f4": "\uF707",
+            "f5": "\uF708", "f6": "\uF709", "f7": "\uF70A", "f8": "\uF70B",
+            "f9": "\uF70C", "f10": "\uF70D", "f11": "\uF70E", "f12": "\uF70F",
         }
         parts = combo.lower().split("+")
         modifiers = parts[:-1]
@@ -1276,11 +1296,15 @@ class AppiumMac2Adapter:
         parts = [part.strip() for part in path.split(">") if part.strip()]
         if not parts:
             return {"error_code": ErrorCode.INVALID_ARGUMENT, "detail": f"Invalid menu path: {path!r}"}
+        bid = self._managed_bundle_id()
+        if not bid:
+            return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": "Cannot determine managed bundle ID for menu click"}
+        safe_bid = _safe_applescript_str(bid)
         quoted_parts = ", ".join(f'"{_safe_applescript_str(part)}"' for part in parts)
         script = (
             'on clickMenu(menuParts)\n'
             '  tell application "System Events"\n'
-            '    tell first application process whose frontmost is true\n'
+            f'    tell first application process whose bundle identifier is "{safe_bid}"\n'
             '      set currentMenuItem to menu bar item (item 1 of menuParts) of menu bar 1\n'
             '      click currentMenuItem\n'
             '      repeat with i from 2 to (count of menuParts)\n'

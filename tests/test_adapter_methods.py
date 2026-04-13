@@ -342,6 +342,27 @@ class TestInputKey:
         result = adapter_with_driver.input_key("space")
         assert result == {}
 
+    def test_input_key_left_arrow(self, adapter_with_driver):
+        result = adapter_with_driver.input_key("left")
+        assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_with(
+            "macos: keys", {"keys": ["\uF702"]}
+        )
+
+    def test_input_key_up_arrow(self, adapter_with_driver):
+        result = adapter_with_driver.input_key("up")
+        assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_with(
+            "macos: keys", {"keys": ["\uF700"]}
+        )
+
+    def test_input_key_f1(self, adapter_with_driver):
+        result = adapter_with_driver.input_key("f1")
+        assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_with(
+            "macos: keys", {"keys": ["\uF704"]}
+        )
+
     def test_input_key_error(self, adapter_with_driver):
         adapter_with_driver._driver.execute_script.side_effect = Exception("fail")
         result = adapter_with_driver.input_key("return")
@@ -367,6 +388,22 @@ class TestInputHotkey:
         with patch("time.sleep"):
             result = adapter_with_driver.input_hotkey("ctrl+c")
         assert result == {}
+
+    def test_hotkey_cmd_left_arrow(self, adapter_with_driver):
+        with patch("time.sleep"):
+            result = adapter_with_driver.input_hotkey("cmd+Left")
+        assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_with(
+            "macos: keys", {"keys": [{"key": "\uF702", "modifierFlags": 1 << 4}]}
+        )
+
+    def test_hotkey_cmd_up_arrow(self, adapter_with_driver):
+        with patch("time.sleep"):
+            result = adapter_with_driver.input_hotkey("cmd+Up")
+        assert result == {}
+        adapter_with_driver._driver.execute_script.assert_called_with(
+            "macos: keys", {"keys": [{"key": "\uF700", "modifierFlags": 1 << 4}]}
+        )
 
 
 class TestInputText:
@@ -442,6 +479,20 @@ class TestPhase2Methods:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
             result = adapter_with_driver.menu_click("File > Open")
         assert result == {}
+
+    def test_menu_click_uses_bundle_identifier(self, adapter_with_driver):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            adapter_with_driver.menu_click("File > Open")
+        script = mock_run.call_args[0][0][2]
+        assert 'bundle identifier is "com.apple.calculator"' in script
+        assert "frontmost is true" not in script
+
+    def test_menu_click_no_bundle_id(self, adapter_with_driver):
+        with patch.object(adapter_with_driver, "_managed_bundle_id", return_value=""):
+            result = adapter_with_driver.menu_click("File > Open")
+        assert result["error_code"] == ErrorCode.INTERNAL_ERROR
+        assert "bundle ID" in result["detail"]
 
     def test_menu_click_rejects_empty_path(self, adapter_with_driver):
         result = adapter_with_driver.menu_click("   >   ")

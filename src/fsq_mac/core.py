@@ -720,6 +720,8 @@ class AutomationCore:
         if err_code:
             return error_response("window.focus", err_code, result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
+        if result.get("title"):
+            self._sm.update_state(active, frontmost_window=result["title"])
         return success_response("window.focus", data=result, session_id=active, meta=self._meta(t, active))
 
     # -- wait ---------------------------------------------------------------
