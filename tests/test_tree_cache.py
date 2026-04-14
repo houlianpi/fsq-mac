@@ -86,6 +86,7 @@ def test_cache_invalidated_after_type(adapter):
     mock_el.get_attribute.return_value = "hello"
     adapter._resolve_ref = MagicMock(return_value=(mock_el, None))
     adapter._wait_for_actionable = MagicMock(return_value=None)
+    adapter._input_text_via_paste = MagicMock()
     adapter.type_text("e0", "hello")
     assert adapter._tree_cache is None
 
@@ -157,6 +158,7 @@ def test_cache_invalidated_after_input_hotkey(adapter):
 def test_cache_invalidated_after_input_text(adapter):
     """input_text() should invalidate the tree cache."""
     adapter._tree_cache = "cached"
+    adapter._input_text_via_paste = MagicMock()
     adapter.input_text("hello")
     assert adapter._tree_cache is None
 

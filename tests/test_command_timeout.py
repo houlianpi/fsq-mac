@@ -101,10 +101,9 @@ def test_click_recovers_via_coordinate_fallback_when_driver_click_hangs(adapter)
         mock_el.click.side_effect = lambda: time.sleep(5)
         with patch.object(adapter, "input_click_at", return_value={}) as mock_click_at:
             result = adapter.click("e0")
-    assert result == {
-        "element_bounds": {"x": 10, "y": 10, "width": 20, "height": 20},
-        "center": {"x": 20, "y": 20},
-    }
+    assert result["element_bounds"] == {"x": 10, "y": 10, "width": 20, "height": 20}
+    assert result["center"] == {"x": 20, "y": 20}
+    assert "error_code" not in result
     mock_click_at.assert_called_once()
 
 
@@ -135,10 +134,9 @@ def test_click_uses_cached_frame_for_coordinate_fallback(adapter):
             type(mock_el).location = PropertyMock(side_effect=[cached_location, RuntimeError("stale frame")])
             type(mock_el).size = PropertyMock(side_effect=[cached_size, RuntimeError("stale frame")])
             result = adapter.click("e0")
-    assert result == {
-        "element_bounds": {"x": 10, "y": 10, "width": 20, "height": 20},
-        "center": {"x": 20, "y": 20},
-    }
+    assert result["element_bounds"] == {"x": 10, "y": 10, "width": 20, "height": 20}
+    assert result["center"] == {"x": 20, "y": 20}
+    assert "error_code" not in result
     mock_click_at.assert_called_once_with(20, 20)
 
 
@@ -204,7 +202,7 @@ def test_input_click_at_returns_timeout(adapter):
 # ---------------------------------------------------------------------------
 
 def test_resolve_query_returns_timeout_on_slow_find(mock_config, mock_driver):
-    """_resolve_query returns TIMEOUT when find_elements blocks."""
+    """_resolve_query returns BACKEND_RPC_TIMEOUT when find_elements blocks."""
     from fsq_mac.models import LocatorQuery
     mock_config["command_timeout"] = 0.2
     a = AppiumMac2Adapter(mock_config)
@@ -212,7 +210,7 @@ def test_resolve_query_returns_timeout_on_slow_find(mock_config, mock_driver):
     mock_driver.find_elements.side_effect = lambda *a, **k: time.sleep(5)
     query = LocatorQuery(role="AXButton", name="OK")
     _, err = a._resolve_query(query)
-    assert err == ErrorCode.TIMEOUT
+    assert err["error_code"] == ErrorCode.BACKEND_RPC_TIMEOUT
 
 
 # ---------------------------------------------------------------------------

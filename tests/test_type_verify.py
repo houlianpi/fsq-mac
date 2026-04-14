@@ -18,6 +18,8 @@ def _setup_adapter(mock_config):
     el = MagicMock()
     # Store a ref for e0
     adapter._element_refs["e0"] = (adapter._snapshot_generation, el)
+    # Mock paste-based input so tests work on Linux CI (no pbcopy/pbpaste)
+    adapter._input_text_via_paste = MagicMock()
     return adapter, el
 
 
