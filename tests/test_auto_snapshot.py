@@ -45,7 +45,7 @@ class TestAutoSnapshot:
         assert resp.data["snapshot"]["snapshot_id"].startswith("snap_")
         assert isinstance(resp.data["snapshot"]["generation"], int)
         assert resp.data["snapshot"]["backend"] == "appium_mac2"
-        assert resp.data["snapshot"]["binding_mode"] == "heuristic"
+        assert resp.data["snapshot"]["binding_mode"] == "bound"
         assert resp.data["snapshot"]["binding_warnings"] == []
         assert resp.data["snapshot"]["elements"][0]["name"] == "Home"
         assert resp.data["snapshot"]["count"] == 1
@@ -110,6 +110,24 @@ class TestAutoSnapshot:
         assert resp.data["snapshot"]["binding_warnings"][0]["code"] == "UNBOUND_ELEMENTS_PRESENT"
         assert resp.data["snapshot"]["count"] == 1
 
+    def test_right_click_snapshot_failed_best_effort(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.right_click.return_value = {"x": 10, "y": 20}
+        adapter.inspect.side_effect = RuntimeError("driver gone")
+        resp = core.element_right_click("e0")
+        assert resp.ok is True
+        assert resp.data["snapshot_status"] == "failed_best_effort"
+        assert "snapshot" not in resp.data
+
+    def test_double_click_snapshot_failed_best_effort(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.double_click.return_value = {"x": 10, "y": 20}
+        adapter.inspect.side_effect = RuntimeError("driver gone")
+        resp = core.element_double_click("e0")
+        assert resp.ok is True
+        assert resp.data["snapshot_status"] == "failed_best_effort"
+        assert "snapshot" not in resp.data
+
     def test_scroll_attaches_snapshot(self, core_with_session):
         core, adapter = core_with_session
         adapter.scroll.return_value = {}
@@ -137,3 +155,30 @@ class TestAutoSnapshot:
         resp = core.element_drag("e0", "e1")
         assert resp.ok is True
         assert resp.data["snapshot_status"] == "attached"
+
+    def test_scroll_snapshot_failed_best_effort(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.scroll.return_value = {}
+        adapter.inspect.side_effect = RuntimeError("driver gone")
+        resp = core.element_scroll("e0", "down")
+        assert resp.ok is True
+        assert resp.data["snapshot_status"] == "failed_best_effort"
+        assert "snapshot" not in resp.data
+
+    def test_type_snapshot_failed_best_effort(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.type_text.return_value = {"verified": True, "typed_value": "hello", "expected": "hello"}
+        adapter.inspect.side_effect = RuntimeError("driver gone")
+        resp = core.element_type("e0", "hello")
+        assert resp.ok is True
+        assert resp.data["snapshot_status"] == "failed_best_effort"
+        assert "snapshot" not in resp.data
+
+    def test_drag_snapshot_failed_best_effort(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.drag.return_value = {}
+        adapter.inspect.side_effect = RuntimeError("driver gone")
+        resp = core.element_drag("e0", "e1")
+        assert resp.ok is True
+        assert resp.data["snapshot_status"] == "failed_best_effort"
+        assert "snapshot" not in resp.data

@@ -124,7 +124,8 @@ All element commands accept locator flags: `--id`, `--role`, `--name`, `--label`
 
 Current `binding_mode` meanings:
 
-- `heuristic` — refs were bound through the current accessibility-based backend heuristic
+- `bound` — every parsed element received a bound ref under the current accessibility-based backend heuristic
+- `heuristic` — some parsed elements were bound and some remained unbound
 - `unbound_only` — the snapshot contains visible elements but no actionable refs were bound
 
 Current `binding_warnings` may include:
@@ -164,7 +165,7 @@ Example inspect response shape:
     "snapshot_id": "snap_12",
     "generation": 12,
     "backend": "appium_mac2",
-    "binding_mode": "heuristic",
+    "binding_mode": "bound",
     "binding_warnings": [
       {
         "code": "WEB_CONTENT_BEST_EFFORT",
@@ -174,11 +175,12 @@ Example inspect response shape:
     ],
     "elements": [
       {
-        "ref": "e0",
+        "element_id": "e0",
         "role": "WebArea",
         "name": "Docs",
         "element_bounds": {"x": 0, "y": 0, "width": 1280, "height": 720},
         "center": {"x": 640, "y": 360},
+        "ref_bound": true,
         "ref_status": "bound",
         "state_source": "xml"
       }
@@ -200,7 +202,9 @@ Example element action success shape:
       "role": "AXButton",
       "name": "OK",
       "ref_status": "bound",
-      "state_source": "xml"
+      "state_source": "xml",
+      "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
+      "center": {"x": 50, "y": 40}
     },
     "actionability_used": {
       "actionable": true,
@@ -214,7 +218,25 @@ Example element action success shape:
     },
     "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
     "center": {"x": 50, "y": 40},
-    "snapshot_status": "attached"
+    "snapshot_status": "attached",
+    "snapshot": {
+      "snapshot_id": "snap_13",
+      "generation": 13,
+      "backend": "appium_mac2",
+      "binding_mode": "bound",
+      "binding_warnings": [],
+      "elements": [
+        {
+          "element_id": "e0",
+          "role": "Button",
+          "name": "OK",
+          "ref_bound": true,
+          "ref_status": "bound",
+          "state_source": "xml"
+        }
+      ],
+      "count": 1
+    }
   }
 }
 ```
@@ -228,12 +250,68 @@ Successful mutating element actions may return additional machine-consumable fie
 - `center`
 - `snapshot_status`
 - `snapshot`
+- `target_bounds` and `target_center` on drag success
 
 Text-writing commands support `--input-method paste|keys|auto`.
 
 - `paste` is the default and inserts final text via clipboard plus paste hotkey
 - `keys` preserves synthetic key injection for flows that need key-event semantics
 - `auto` currently behaves the same as `paste`
+
+Example structured error shapes:
+
+```json
+{
+  "ok": false,
+  "command": "element.click",
+  "error": {
+    "code": "ELEMENT_UNBOUND",
+    "message": "Ref 'e5' is visible in the current snapshot but was not bound to an actionable element handle",
+    "details": {
+      "ref": "e5",
+      "reason": "snapshot_unbound"
+    },
+    "suggested_next_action": "mac element inspect"
+  }
+}
+```
+
+```json
+{
+  "ok": false,
+  "command": "element.click",
+  "error": {
+    "code": "BACKEND_RPC_TIMEOUT",
+    "message": "Timed out while probing element state: Driver operation timed out after 0.5s",
+    "details": {
+      "state_source": "rpc",
+      "checks": {"rpc_probe": "timed_out"},
+      "recovery_hint": "Retry the action or refresh the UI snapshot if the backend remains slow."
+    },
+    "suggested_next_action": "Retry the action or refresh with 'mac element inspect'"
+  }
+}
+```
+
+```json
+{
+  "ok": false,
+  "command": "element.click",
+  "error": {
+    "code": "GEOMETRY_UNRELIABLE",
+    "message": "click-at failed",
+    "details": {
+      "ref": "e0",
+      "state_source": "xml",
+      "checks": {"has_geometry": false},
+      "element_bounds": {"x": 0, "y": 0, "width": 1, "height": 1},
+      "recovery_hint": "Refresh the snapshot and avoid coordinate fallback for this element until stable bounds are available.",
+      "web_best_effort": true
+    },
+    "suggested_next_action": "mac element inspect"
+  }
+}
+```
 
 ## input
 

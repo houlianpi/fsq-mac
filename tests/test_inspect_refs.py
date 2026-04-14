@@ -39,26 +39,17 @@ def test_duplicate_name_elements_get_distinct_refs(mock_config):
     assert elements[0]["name"] == "5"
     assert elements[1]["name"] == "5"
 
-    # The refs should point to different WebElements
-    ref_e0 = adapter._element_refs.get("e0")
-    ref_e1 = adapter._element_refs.get("e1")
-    assert ref_e0 is not None
-    assert ref_e1 is not None
-    # Extract from (generation, element, name, frame, visible, enabled, role) tuple
-    _, actual_e0, name_e0, frame_e0, vis_e0, en_e0, role_e0 = ref_e0
-    _, actual_e1, name_e1, frame_e1, vis_e1, en_e1, role_e1 = ref_e1
-    assert actual_e0 is web_el_0
-    assert actual_e1 is web_el_1
-    assert name_e0 == "5"
-    assert name_e1 == "5"
-    assert frame_e0 == {"x": 0, "y": 0, "width": 50, "height": 50}
-    assert frame_e1 == {"x": 60, "y": 0, "width": 50, "height": 50}
-    assert vis_e0 is True
-    assert vis_e1 is True
-    assert en_e0 is True
-    assert en_e1 is True
-    assert role_e0 == "Button"
-    assert role_e1 == "Button"
+    # Public contract should expose distinct refs and stable inspect payload data.
+    assert elements[0]["ref"] == "e0"
+    assert elements[1]["ref"] == "e1"
+    assert elements[0]["ref_bound"] is True
+    assert elements[1]["ref_bound"] is True
+    assert elements[0]["ref_status"] == "bound"
+    assert elements[1]["ref_status"] == "bound"
+    assert elements[0]["element_bounds"] == {"x": 0, "y": 0, "width": 50, "height": 50}
+    assert elements[1]["element_bounds"] == {"x": 60, "y": 0, "width": 50, "height": 50}
+    assert elements[0]["state_source"] == "xml"
+    assert elements[1]["state_source"] == "xml"
 
 
 def test_inspect_elements_include_ref_bound(mock_config):

@@ -216,6 +216,20 @@ def _failure_details(
     return details
 
 
+def _rpc_timeout_result(detail: str, *, ref: str | None = None, element_bounds: dict[str, int] | None = None) -> dict:
+    return {
+        "error_code": ErrorCode.BACKEND_RPC_TIMEOUT,
+        "detail": detail,
+        "details": _failure_details(
+            ref=ref,
+            state_source="rpc",
+            checks={"rpc_call": "timed_out"},
+            element_bounds=element_bounds,
+            recovery_hint="Retry the action or refresh the UI snapshot if the backend remains slow.",
+        ),
+    }
+
+
 def _is_web_content_element(element) -> bool:
     try:
         role = element.get_attribute("role") or ""
@@ -805,7 +819,17 @@ class AppiumMac2Adapter:
             eid = self._ref_eid(ref)
             if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
                 return self._stale_ref_error(eid)
-            result = {"error_code": err}
+            if err == ErrorCode.ELEMENT_UNBOUND and eid:
+                result = {
+                    "error_code": err,
+                    "detail": f"Ref '{eid}' is visible in the current snapshot but was not bound to an actionable element handle",
+                    "details": {
+                        "ref": eid,
+                        "reason": "snapshot_unbound",
+                    },
+                }
+            else:
+                result = {"error_code": err}
         if detail is not None and "detail" not in result:
             result["detail"] = detail
         return result
@@ -996,6 +1020,12 @@ class AppiumMac2Adapter:
                     ),
                 }
             except Exception as exc:
+                for eid, entry in self._element_refs.items():
+                    if len(entry) >= 2 and entry[1] is element:
+                        stale = self._stale_ref_error(eid)
+                        if "detail" not in stale:
+                            stale["detail"] = str(exc)
+                        return stale
                 return {
                     "error_code": ErrorCode.ELEMENT_REFERENCE_STALE,
                     "detail": str(exc),
@@ -1342,7 +1372,7 @@ class AppiumMac2Adapter:
                         ), el),
                     }
                 if isinstance(driver_click_error, TimeoutError):
-                    return {"error_code": ErrorCode.TIMEOUT, "detail": str(driver_click_error)}
+                    return _rpc_timeout_result(f"Timed out while performing click: {driver_click_error}", ref=eid, element_bounds=_geometry_payload(fallback_frame)["element_bounds"])
                 detail = fallback.get("detail") or str(driver_click_error)
                 return {"error_code": fallback["error_code"], "detail": detail}
         except Exception as exc:
@@ -1359,7 +1389,7 @@ class AppiumMac2Adapter:
                     ), el),
                 }
             if isinstance(driver_click_error, TimeoutError):
-                return {"error_code": ErrorCode.TIMEOUT, "detail": str(driver_click_error)}
+                return _rpc_timeout_result(f"Timed out while performing click: {driver_click_error}", ref=eid, element_bounds=_geometry_payload(fallback_frame)["element_bounds"])
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
 
         if isinstance(driver_click_error, TimeoutError):
@@ -1390,7 +1420,7 @@ class AppiumMac2Adapter:
                 lambda: ActionChains(self._driver).context_click(el).perform()
             )
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
+            return _rpc_timeout_result(f"Timed out while performing context click: {exc}", ref=self._ref_eid(ref), element_bounds=_geometry_payload(frame)["element_bounds"])
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
@@ -1422,7 +1452,7 @@ class AppiumMac2Adapter:
                 self._driver.tap([(x, y)])
             self._run_with_timeout(_do_double_click)
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
+            return _rpc_timeout_result(f"Timed out while performing double click: {exc}", ref=self._ref_eid(ref), element_bounds=_geometry_payload(frame)["element_bounds"])
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         time.sleep(self._delay_post_action)
@@ -1450,7 +1480,7 @@ class AppiumMac2Adapter:
             if duration > 0:
                 time.sleep(duration)
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
+            return _rpc_timeout_result(f"Timed out while performing hover: {exc}", ref=self._ref_eid(ref), element_bounds=_geometry_payload(frame)["element_bounds"])
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         return {
@@ -1482,7 +1512,7 @@ class AppiumMac2Adapter:
                     self._input_text_via_paste(text)
             self._run_with_timeout(_do_type)
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
+            return _rpc_timeout_result(f"Timed out while typing text: {exc}", ref=self._ref_eid(ref), element_bounds=_geometry_payload(frame)["element_bounds"])
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         # Verify the typed value
@@ -1508,13 +1538,30 @@ class AppiumMac2Adapter:
         el, err = self._resolve_ref(ref, strategy)
         if err:
             return self._resolve_error_result(err, ref)
+        cached_state = self._get_ref_cached_state(self._ref_eid(ref))
+        wait_error = self._wait_for_actionable(el, cached_state=cached_state)
+        if wait_error:
+            return wait_error
+        frame = _frame_to_tuple(cached_state[0]) if cached_state else self._element_frame(el)
         try:
-            self._driver.execute_script("mobile: scroll", {"direction": direction, "element": el})
+            self._run_with_timeout(
+                lambda: self._driver.execute_script("mobile: scroll", {"direction": direction, "element": el})
+            )
+        except TimeoutError as exc:
+            return _rpc_timeout_result(
+                f"Timed out while performing scroll: {exc}",
+                ref=self._ref_eid(ref),
+                element_bounds=_geometry_payload(frame)["element_bounds"],
+            )
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         self._invalidate_refs()
         self._tree_cache = None
-        return {}
+        return {
+            **_geometry_payload(frame),
+            "resolved_element": _resolved_element_payload(ref, el, frame, cached_state),
+            "actionability_used": _actionability_payload(cached_state),
+        }
 
     def drag(self, source_ref: str | LocatorQuery, target_ref: str | LocatorQuery, strategy: str = "accessibility_id") -> dict:
         src, err1 = self._resolve_ref(source_ref, strategy)
@@ -1536,7 +1583,7 @@ class AppiumMac2Adapter:
                 lambda: ActionChains(self._driver).drag_and_drop(src, tgt).perform()
             )
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
+            return _rpc_timeout_result(f"Timed out while performing drag: {exc}")
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         self._invalidate_refs()
@@ -1544,13 +1591,22 @@ class AppiumMac2Adapter:
         src_frame = _frame_to_tuple(src_cached[0]) if src_cached else self._element_frame(src)
         tgt_frame = _frame_to_tuple(tgt_cached[0]) if tgt_cached else self._element_frame(tgt)
         return {
+            **_geometry_payload(src_frame),
+            "target_bounds": _geometry_payload(tgt_frame)["element_bounds"],
+            "target_center": _geometry_payload(tgt_frame)["center"],
             "resolved_element": _resolved_element_payload(source_ref, src, src_frame, src_cached),
             "resolved_target": _resolved_element_payload(target_ref, tgt, tgt_frame, tgt_cached),
             "actionability_used": {
                 "actionable": True,
                 "checks": {
-                    "source_actionable": True,
-                    "target_actionable": True,
+                    "has_ref": True,
+                    "has_geometry": True,
+                    "visible": True,
+                    "enabled": True,
+                    "target_has_ref": True,
+                    "target_has_geometry": True,
+                    "target_visible": True,
+                    "target_enabled": True,
                 },
                 "evidence_source": "xml" if src_cached is not None or tgt_cached is not None else "rpc",
             },
@@ -1642,7 +1698,7 @@ class AppiumMac2Adapter:
                 )
             )
         except TimeoutError as exc:
-            return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
+            return _rpc_timeout_result(f"Timed out while performing input click: {exc}")
         except Exception as exc:
             return {"error_code": ErrorCode.INTERNAL_ERROR, "detail": str(exc)}
         self._invalidate_refs()

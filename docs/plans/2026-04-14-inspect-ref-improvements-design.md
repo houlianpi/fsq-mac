@@ -71,19 +71,21 @@ Non-mutating actions that do not auto-attach snapshots:
 - `element_inspect`
 - `element_find`
 
-## Response Shape
+## Historical Response Shape
+
+The examples below describe the original patch intent, not the current contract. The live implementation now returns richer action payloads such as `resolved_element`, `actionability_used`, `element_bounds`, `center`, and full snapshot metadata including `snapshot_id`, `generation`, `backend`, `binding_mode`, and `binding_warnings`.
+
+Historical patch sketch:
 
 ```json
 {
   "ok": true,
   "command": "element.click",
   "data": {
-    "x": 100,
-    "y": 200,
     "snapshot_status": "attached",
     "snapshot": {
       "elements": [
-        {"id": "e0", "role": "Button", "name": "Home", "ref_bound": true}
+        {"element_id": "e0", "role": "Button", "name": "Home", "ref_bound": true}
       ],
       "count": 1
     }
@@ -98,8 +100,6 @@ If snapshot fails:
   "ok": true,
   "command": "element.click",
   "data": {
-    "x": 100,
-    "y": 200,
     "snapshot_status": "failed_best_effort"
   }
 }
@@ -134,8 +134,8 @@ This is only a binding-state field. It is not a reliability guarantee.
 Example:
 
 ```json
-{"id": "e0", "role": "Button", "name": "Home", "ref_bound": true}
-{"role": "StaticText", "name": "Hello", "ref_bound": false}
+{"element_id": "e0", "role": "Button", "name": "Home", "ref_bound": true}
+{"element_id": "e1", "role": "StaticText", "name": "Hello", "ref_bound": false}
 ```
 
 ## Fallback Guidance

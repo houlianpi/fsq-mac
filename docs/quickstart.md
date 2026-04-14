@@ -89,7 +89,8 @@ mac element find --role AXButton --name OK
 
 Typical meanings:
 
-- `binding_mode=heuristic`: refs were bound through the current Appium Mac2 accessibility heuristic
+- `binding_mode=bound`: every snapshot element received a bound ref under the current Appium Mac2 accessibility heuristic
+- `binding_mode=heuristic`: some snapshot elements were bound and some were left unbound
 - `binding_mode=unbound_only`: the snapshot contains visible elements, but none received actionable refs
 - `binding_warnings` may include `WEB_CONTENT_BEST_EFFORT`: browser web content is available, but still only through accessibility, not DOM-native guarantees
 
@@ -103,15 +104,16 @@ Example:
     "snapshot_id": "snap_12",
     "generation": 12,
     "backend": "appium_mac2",
-    "binding_mode": "heuristic",
+    "binding_mode": "bound",
     "binding_warnings": [],
     "elements": [
       {
-        "ref": "e0",
+        "element_id": "e0",
         "role": "Button",
         "name": "OK",
         "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
         "center": {"x": 50, "y": 40},
+        "ref_bound": true,
         "ref_status": "bound",
         "state_source": "xml"
       }
@@ -148,6 +150,7 @@ Successful element actions may also attach machine-consumable context such as:
 - `center`
 - `snapshot_status`
 - optional best-effort `snapshot`
+- for drag: `resolved_target`, `target_bounds`, `target_center`
 
 If an action fails, prefer `error.code` and `error.details` over parsing free-form messages.
 

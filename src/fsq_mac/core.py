@@ -54,6 +54,8 @@ _SAFETY: dict[str, SafetyLevel] = {
     "assert.enabled": SafetyLevel.SAFE,
     "assert.text": SafetyLevel.SAFE,
     "assert.value": SafetyLevel.SAFE,
+    "assert.app-running": SafetyLevel.SAFE,
+    "assert.app-frontmost": SafetyLevel.SAFE,
     "menu.click": SafetyLevel.GUARDED,
     "trace.start": SafetyLevel.SAFE,
     "trace.stop": SafetyLevel.SAFE,
@@ -78,10 +80,16 @@ def _suggested_next_action_for_error(code: ErrorCode) -> str | None:
         return "mac element inspect"
     if code == ErrorCode.ELEMENT_NOT_ACTIONABLE:
         return "mac element inspect"
+    if code == ErrorCode.ELEMENT_NOT_FOUND:
+        return "mac element inspect"
+    if code == ErrorCode.ELEMENT_UNBOUND:
+        return "mac element inspect"
     if code == ErrorCode.GEOMETRY_UNRELIABLE:
         return "mac element inspect"
     if code == ErrorCode.BACKEND_RPC_TIMEOUT:
         return "Retry the action or refresh with 'mac element inspect'"
+    if code == ErrorCode.BACKEND_UNAVAILABLE:
+        return "mac doctor backend"
     return None
 
 
@@ -132,6 +140,32 @@ class AutomationCore:
                 suggested_next_action="mac session start",
             )
         return adapter, active, None
+
+    def _adapter_error_response(
+        self,
+        command: str,
+        result: dict,
+        start: float,
+        session_id: str | None,
+        *,
+        suggested_next_action: str | None = None,
+        doctor_hint: str | None = None,
+        data: dict | None = None,
+    ) -> Response:
+        effective_next_action = suggested_next_action
+        if effective_next_action is None:
+            effective_next_action = _suggested_next_action_for_error(result["error_code"])
+        return error_response(
+            command,
+            result["error_code"],
+            result.get("detail", ""),
+            session_id=session_id,
+            meta=self._meta(start, session_id),
+            suggested_next_action=effective_next_action,
+            doctor_hint=doctor_hint,
+            details=result.get("details"),
+            data=data,
+        )
 
     def _query_from_args(
         self,
@@ -240,9 +274,7 @@ class AutomationCore:
             return err
         info = adapter.app_launch(bundle_id)
         if info.get("error_code"):
-            return error_response("app.launch", info["error_code"], info.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active),
-                                  doctor_hint="mac doctor backend")
+            return self._adapter_error_response("app.launch", info, t, active, doctor_hint="mac doctor backend")
         self._sm.update_state(active, frontmost_app=bundle_id)
         # Update frontmost_window metadata (#8)
         try:
@@ -260,8 +292,7 @@ class AutomationCore:
             return err
         info = adapter.app_activate(bundle_id)
         if info.get("error_code"):
-            return error_response("app.activate", info["error_code"], info.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("app.activate", info, t, active)
         self._sm.update_state(active, frontmost_app=bundle_id)
         # Update frontmost_window metadata (#8)
         try:
@@ -288,8 +319,7 @@ class AutomationCore:
             return err
         info = adapter.app_terminate(bundle_id)
         if info.get("error_code"):
-            return error_response("app.terminate", info["error_code"], info.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("app.terminate", info, t, active)
         return success_response("app.terminate", data=info, session_id=active, meta=self._meta(t, active))
 
     def app_list(self, sid: str | None = None) -> Response:
@@ -375,7 +405,7 @@ class AutomationCore:
             if element.get("ref_status") == "unbound" or element.get("ref_bound") is False
         ]
         if not unbound_elements:
-            return "heuristic", warnings
+            return "bound", warnings
         warnings.append({
             "code": "UNBOUND_ELEMENTS_PRESENT",
             "count": len(unbound_elements),
@@ -526,7 +556,7 @@ class AutomationCore:
                                   session_id=active, meta=self._meta(t, active),
                                   suggested_next_action=suggested, details=details)
         data = {}
-        for key in ("resolved_element", "resolved_target", "actionability_used"):
+        for key in ("resolved_element", "resolved_target", "actionability_used", "element_bounds", "center", "target_bounds", "target_center"):
             if key in result:
                 data[key] = result[key]
         self._best_effort_snapshot(adapter, data)
@@ -541,8 +571,7 @@ class AutomationCore:
             return err
         result = adapter.input_key(key)
         if result.get("error_code"):
-            return error_response("input.key", result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("input.key", result, t, active)
         return success_response("input.key", data=result or None, session_id=active, meta=self._meta(t, active))
 
     def input_hotkey(self, combo: str, sid: str | None = None) -> Response:
@@ -552,8 +581,7 @@ class AutomationCore:
             return err
         result = adapter.input_hotkey(combo)
         if result.get("error_code"):
-            return error_response("input.hotkey", result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("input.hotkey", result, t, active)
         return success_response("input.hotkey", data=result or None, session_id=active, meta=self._meta(t, active))
 
     def input_text(self, text: str, sid: str | None = None, input_method: str = "paste") -> Response:
@@ -563,8 +591,7 @@ class AutomationCore:
             return err
         result = adapter.input_text(text, input_method=input_method)
         if result.get("error_code"):
-            return error_response("input.text", result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("input.text", result, t, active)
         return success_response("input.text", data=result or None, session_id=active, meta=self._meta(t, active))
 
     def input_click_at(self, x: int, y: int, sid: str | None = None) -> Response:
@@ -574,8 +601,7 @@ class AutomationCore:
             return err
         result = adapter.input_click_at(x, y)
         if result.get("error_code"):
-            return error_response("input.click-at", result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("input.click-at", result, t, active)
         return success_response("input.click-at", session_id=active, meta=self._meta(t, active))
 
     def _assert_element(self, command: str, method_name: str, expected: str | None = None,
@@ -588,8 +614,7 @@ class AutomationCore:
         action_fn = getattr(adapter, method_name)
         result = action_fn(query) if expected is None else action_fn(query, expected)
         if result.get("error_code"):
-            return error_response(command, result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response(command, result, t, active)
         return success_response(command, data=result or {}, session_id=active, meta=self._meta(t, active))
 
     def assert_visible(self, ref: str | None = None, sid: str | None = None, **locator) -> Response:
@@ -640,8 +665,7 @@ class AutomationCore:
             return err
         result = adapter.menu_click(path)
         if result.get("error_code"):
-            return error_response("menu.click", result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("menu.click", result, t, active)
         return success_response("menu.click", data=result or {}, session_id=active, meta=self._meta(t, active))
 
     def trace_start(self, path: str | None = None, sid: str | None = None) -> Response:
@@ -766,8 +790,7 @@ class AutomationCore:
         else:
             result = adapter.screenshot(path)
         if result.get("error_code"):
-            return error_response("capture.screenshot", result["error_code"], result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("capture.screenshot", result, t, active)
         return success_response("capture.screenshot", data=result, session_id=active, meta=self._meta(t, active))
 
     def capture_ui_tree(self, sid: str | None = None) -> Response:
@@ -822,8 +845,7 @@ class AutomationCore:
         result = adapter.window_focus(index)
         err_code = result.get("error_code")
         if err_code:
-            return error_response("window.focus", err_code, result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+            return self._adapter_error_response("window.focus", result, t, active)
         if result.get("title"):
             self._sm.update_state(active, frontmost_window=result["title"])
         return success_response("window.focus", data=result, session_id=active, meta=self._meta(t, active))

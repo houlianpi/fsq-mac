@@ -116,7 +116,8 @@ def test_click_returns_timeout_when_driver_click_and_coordinate_fallback_fail(ad
         mock_el.click.side_effect = lambda: time.sleep(5)
         with patch.object(adapter, "input_click_at", return_value={"error_code": ErrorCode.INTERNAL_ERROR, "detail": "click-at failed"}):
             result = adapter.click("e0")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 def test_click_uses_cached_frame_for_coordinate_fallback(adapter):
@@ -141,43 +142,56 @@ def test_click_uses_cached_frame_for_coordinate_fallback(adapter):
 
 
 def test_right_click_returns_timeout(adapter):
-    """right_click() should return TIMEOUT when context_click blocks."""
+    """right_click() should return BACKEND_RPC_TIMEOUT when context_click blocks."""
     _prep_adapter(adapter)
     with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
         chain = MockAC.return_value.context_click.return_value
         chain.perform.side_effect = lambda: time.sleep(5)
         result = adapter.right_click("e0")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 def test_double_click_returns_timeout(adapter):
-    """double_click() should return TIMEOUT when tap operations block."""
+    """double_click() should return BACKEND_RPC_TIMEOUT when tap operations block."""
     mock_el = _prep_adapter(adapter)
     adapter._driver.tap.side_effect = lambda *a, **k: time.sleep(5)
     result = adapter.double_click("e0")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 def test_hover_returns_timeout(adapter):
-    """hover() should return TIMEOUT when move_to_element blocks."""
+    """hover() should return BACKEND_RPC_TIMEOUT when move_to_element blocks."""
     _prep_adapter(adapter)
     with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
         chain = MockAC.return_value.move_to_element.return_value
         chain.perform.side_effect = lambda: time.sleep(5)
         result = adapter.hover("e0")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 def test_type_text_returns_timeout(adapter):
-    """type_text() should return TIMEOUT when el.click/send_keys blocks."""
+    """type_text() should return BACKEND_RPC_TIMEOUT when el.click/send_keys blocks."""
     mock_el = _prep_adapter(adapter)
     mock_el.click.side_effect = lambda: time.sleep(5)
     result = adapter.type_text("e0", "hello")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
+
+
+def test_scroll_returns_timeout(adapter):
+    """scroll() should return BACKEND_RPC_TIMEOUT when mobile: scroll blocks."""
+    _prep_adapter(adapter)
+    adapter._driver.execute_script.side_effect = lambda *a, **k: time.sleep(5)
+    result = adapter.scroll("e0", "down")
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 def test_drag_returns_timeout(adapter):
-    """drag() should return TIMEOUT when drag_and_drop blocks."""
+    """drag() should return BACKEND_RPC_TIMEOUT when drag_and_drop blocks."""
     adapter._invalidate_refs = MagicMock()
     src = MagicMock()
     tgt = MagicMock()
@@ -187,14 +201,16 @@ def test_drag_returns_timeout(adapter):
         chain = MockAC.return_value.drag_and_drop.return_value
         chain.perform.side_effect = lambda: time.sleep(5)
         result = adapter.drag("e0", "e1")
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 def test_input_click_at_returns_timeout(adapter):
     """input_click_at() should return TIMEOUT when macos: click blocks."""
     with patch.object(adapter, "_run_with_timeout", side_effect=TimeoutError("Driver operation timed out after 0.5s")):
         result = adapter.input_click_at(100, 200)
-    assert result.get("error_code") == ErrorCode.TIMEOUT
+    assert result.get("error_code") == ErrorCode.BACKEND_RPC_TIMEOUT
+    assert result["details"]["checks"]["rpc_call"] == "timed_out"
 
 
 # ---------------------------------------------------------------------------

@@ -305,6 +305,9 @@ class TestClick:
         adapter_with_driver.inspect()
         result = adapter_with_driver.click("e1")
         assert result["error_code"] == ErrorCode.ELEMENT_UNBOUND
+        assert result["detail"] == "Ref 'e1' is visible in the current snapshot but was not bound to an actionable element handle"
+        assert result["details"]["ref"] == "e1"
+        assert result["details"]["reason"] == "snapshot_unbound"
 
     def test_click_probe_timeout_returns_backend_rpc_timeout(self, adapter_with_driver):
         mock_el = MagicMock()
@@ -329,6 +332,8 @@ class TestRightClick:
             result = adapter_with_driver.right_click("e0")
         assert result["element_bounds"] == {"x": 10, "y": 20, "width": 30, "height": 40}
         assert result["center"] == {"x": 25, "y": 40}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["actionability_used"]["actionable"] is True
 
     def test_right_click_error(self, adapter_with_driver):
         mock_el = MagicMock()
@@ -350,6 +355,8 @@ class TestDoubleClick:
             result = adapter_with_driver.double_click("e0")
         assert result["element_bounds"] == {"x": 10, "y": 20, "width": 100, "height": 50}
         assert result["center"] == {"x": 60, "y": 45}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["actionability_used"]["actionable"] is True
 
 
 class TestHover:
@@ -362,6 +369,8 @@ class TestHover:
             result = adapter_with_driver.hover("e0", duration=0)
         assert result["element_bounds"] == {"x": 5, "y": 6, "width": 10, "height": 12}
         assert result["center"] == {"x": 10, "y": 12}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["actionability_used"]["actionable"] is True
 
 
 class TestTypeText:
@@ -406,24 +415,34 @@ class TestScroll:
     def test_scroll_success(self, adapter_with_driver):
         mock_el = MagicMock()
         mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 100, "height": 30}
         adapter_with_driver._store_ref("e0", mock_el)
         result = adapter_with_driver.scroll("e0", "down")
-        assert result == {}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["element_bounds"] == {"x": 0, "y": 0, "width": 100, "height": 30}
+        assert result["actionability_used"]["actionable"] is True
 
 
 class TestDrag:
     def test_drag_success(self, adapter_with_driver):
         src = MagicMock()
         src.location = {"x": 0, "y": 0}
+        src.size = {"width": 20, "height": 10}
         tgt = MagicMock()
         tgt.location = {"x": 10, "y": 10}
+        tgt.size = {"width": 40, "height": 30}
         adapter_with_driver._store_ref("e0", src)
         adapter_with_driver._store_ref("e1", tgt)
         with patch("fsq_mac.adapters.appium_mac2.ActionChains"):
             result = adapter_with_driver.drag("e0", "e1")
         assert result["resolved_element"]["ref"] == "e0"
         assert result["resolved_target"]["ref"] == "e1"
+        assert result["element_bounds"] == {"x": 0, "y": 0, "width": 20, "height": 10}
+        assert result["center"] == {"x": 10, "y": 5}
+        assert result["target_bounds"] == {"x": 10, "y": 10, "width": 40, "height": 30}
+        assert result["target_center"] == {"x": 30, "y": 25}
         assert result["actionability_used"]["actionable"] is True
+        assert result["actionability_used"]["checks"]["has_ref"] is True
 
     def test_drag_source_not_found(self, adapter_with_driver):
         result = adapter_with_driver.drag("e99", "e98")
@@ -707,9 +726,12 @@ class TestActionableWait:
 
     def test_wait_for_actionable_returns_stale_when_probe_raises(self, adapter_with_driver):
         mock_el = MagicMock()
+        adapter_with_driver._store_ref("e7", mock_el, name="Submit", role="Button")
         with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=RuntimeError("stale element")):
             result = adapter_with_driver._wait_for_actionable(mock_el, timeout=1)
         assert result["error_code"] == ErrorCode.ELEMENT_REFERENCE_STALE
+        assert result["details"]["cached_name"] == "Submit"
+        assert result["details"]["cached_role"] == "Button"
 
     def test_wait_for_actionable_cached_state_not_actionable_returns_element_not_actionable(self, adapter_with_driver):
         mock_el = MagicMock()

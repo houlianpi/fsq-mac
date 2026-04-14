@@ -53,6 +53,15 @@ class TestCheckSafety:
         assert check_safety("unknown.command", False) is None
 
 
+    def test_assert_app_running_is_safe(self):
+        from fsq_mac.core import _SAFETY
+        assert _SAFETY["assert.app-running"] == SafetyLevel.SAFE
+
+    def test_assert_app_frontmost_is_safe(self):
+        from fsq_mac.core import _SAFETY
+        assert _SAFETY["assert.app-frontmost"] == SafetyLevel.SAFE
+
+
 class TestSessionOps:
     def test_session_start(self, tmp_path, monkeypatch):
         monkeypatch.setattr(session_module, "STATE_DIR", tmp_path)
@@ -108,10 +117,14 @@ class TestAppOps:
         adapter.app_launch.return_value = {
             "error_code": ErrorCode.BACKEND_UNAVAILABLE,
             "detail": "connection refused",
+            "details": {"endpoint": "http://127.0.0.1:4723"},
         }
         resp = core.app_launch("com.apple.calculator")
         assert resp.ok is False
         assert resp.error.code == ErrorCode.BACKEND_UNAVAILABLE
+        assert resp.error.details["endpoint"] == "http://127.0.0.1:4723"
+        assert resp.error.doctor_hint == "mac doctor backend"
+        assert resp.error.suggested_next_action == "mac doctor backend"
 
     def test_app_activate_success(self, core_with_session):
         core, adapter = core_with_session
@@ -129,6 +142,7 @@ class TestAppOps:
         resp = core.app_activate("com.apple.safari")
         assert resp.ok is False
         assert resp.error.code == ErrorCode.BACKEND_UNAVAILABLE
+        assert resp.error.suggested_next_action == "mac doctor backend"
 
     def test_app_terminate_success(self, core_with_session):
         core, adapter = core_with_session
@@ -144,6 +158,7 @@ class TestAppOps:
         }
         resp = core.app_terminate("com.apple.safari")
         assert resp.ok is False
+        assert resp.error.suggested_next_action == "mac doctor backend"
 
     def test_app_current(self, core_with_session):
         core, adapter = core_with_session
@@ -259,7 +274,7 @@ class TestElementOps:
         assert resp.data["snapshot_id"].startswith("snap_")
         assert isinstance(resp.data["generation"], int)
         assert resp.data["backend"] == "appium_mac2"
-        assert resp.data["binding_mode"] == "heuristic"
+        assert resp.data["binding_mode"] == "bound"
         assert resp.data["binding_warnings"] == []
         assert resp.data["elements"][0]["element_id"] == "e0"
         assert resp.data["count"] == 1
@@ -305,6 +320,20 @@ class TestElementOps:
         resp = core.element_find("nonexistent")
         assert resp.ok is False
         assert resp.error.code == ErrorCode.ELEMENT_NOT_FOUND
+        assert resp.error.suggested_next_action == "mac element inspect"
+
+    def test_element_scroll_unbound_suggests_inspect(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.scroll.return_value = {
+            "error_code": ErrorCode.ELEMENT_UNBOUND,
+            "detail": "Ref 'e1' is visible in the current snapshot but was not bound to an actionable element handle",
+            "details": {"ref": "e1", "reason": "snapshot_unbound"},
+        }
+        resp = core.element_scroll("e1", "down")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.ELEMENT_UNBOUND
+        assert resp.error.suggested_next_action == "mac element inspect"
+        assert resp.error.details["reason"] == "snapshot_unbound"
 
     def test_element_find_multiple(self, core_with_session):
         core, adapter = core_with_session
@@ -341,9 +370,16 @@ class TestElementOps:
 
     def test_element_scroll(self, core_with_session):
         core, adapter = core_with_session
-        adapter.scroll.return_value = {}
+        adapter.scroll.return_value = {
+            "resolved_element": {"ref": "e0", "role": "AXScrollArea", "ref_status": "bound"},
+            "actionability_used": {"actionable": True, "evidence_source": "xml"},
+            "element_bounds": {"x": 0, "y": 0, "width": 100, "height": 30},
+            "center": {"x": 50, "y": 15},
+        }
         resp = core.element_scroll("e0", "down")
         assert resp.ok is True
+        assert resp.data["resolved_element"]["ref"] == "e0"
+        assert resp.data["element_bounds"]["width"] == 100
 
     def test_element_hover(self, core_with_session):
         core, adapter = core_with_session
@@ -360,18 +396,25 @@ class TestElementOps:
         adapter.drag.return_value = {
             "resolved_element": {"ref": "e0", "role": "AXButton", "ref_status": "bound"},
             "resolved_target": {"ref": "e1", "role": "AXButton", "ref_status": "bound"},
-            "actionability_used": {"actionable": True, "evidence_source": "xml"},
+            "actionability_used": {"actionable": True, "checks": {"has_ref": True}, "evidence_source": "xml"},
+            "element_bounds": {"x": 1, "y": 2, "width": 30, "height": 20},
+            "center": {"x": 16, "y": 12},
+            "target_bounds": {"x": 40, "y": 50, "width": 60, "height": 30},
+            "target_center": {"x": 70, "y": 65},
         }
         resp = core.element_drag("e0", "e1")
         assert resp.ok is True
         assert resp.data["resolved_element"]["ref"] == "e0"
         assert resp.data["resolved_target"]["ref"] == "e1"
+        assert resp.data["element_bounds"]["width"] == 30
+        assert resp.data["target_center"] == {"x": 70, "y": 65}
 
     def test_element_drag_error(self, core_with_session):
         core, adapter = core_with_session
         adapter.drag.return_value = {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": "not found"}
         resp = core.element_drag("e0", "e1")
         assert resp.ok is False
+        assert resp.error.suggested_next_action == "mac element inspect"
 
 
 class TestAssertOps:
@@ -433,9 +476,14 @@ class TestInputOps:
 
     def test_input_key_error(self, core_with_session):
         core, adapter = core_with_session
-        adapter.input_key.return_value = {"error_code": ErrorCode.INTERNAL_ERROR, "detail": "fail"}
+        adapter.input_key.return_value = {
+            "error_code": ErrorCode.INTERNAL_ERROR,
+            "detail": "fail",
+            "details": {"state_source": "rpc"},
+        }
         resp = core.input_key("return")
         assert resp.ok is False
+        assert resp.error.details["state_source"] == "rpc"
 
     def test_input_hotkey(self, core_with_session):
         core, adapter = core_with_session
@@ -494,6 +542,17 @@ class TestMenuOps:
         adapter.menu_click.return_value = {}
         resp = core.menu_click("File > Open")
         assert resp.ok is True
+
+    def test_menu_click_error_preserves_details(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.menu_click.return_value = {
+            "error_code": ErrorCode.INTERNAL_ERROR,
+            "detail": "menu failed",
+            "details": {"path": "File > Open"},
+        }
+        resp = core.menu_click("File > Open")
+        assert resp.ok is False
+        assert resp.error.details["path"] == "File > Open"
 
 
 class TestTraceOps:
@@ -635,9 +694,14 @@ class TestWindowOps:
 
     def test_window_focus_error(self, core_with_session):
         core, adapter = core_with_session
-        adapter.window_focus.return_value = {"error_code": ErrorCode.WINDOW_NOT_FOUND, "detail": "bad index"}
+        adapter.window_focus.return_value = {
+            "error_code": ErrorCode.WINDOW_NOT_FOUND,
+            "detail": "bad index",
+            "details": {"index": 99},
+        }
         resp = core.window_focus(99)
         assert resp.ok is False
+        assert resp.error.details["index"] == 99
 
 
 class TestWaitOps:
