@@ -36,7 +36,9 @@ Global flags: `--pretty`, `--session <id>`, `--verbose`, `--debug`, `--timeout <
 
 ## Response Envelope
 
-Every command returns:
+Most commands return a JSON envelope:
+
+> **Exception:** `trace codegen` on success prints the generated shell script as raw text (or `Script written to <path>` when `--output` is used) instead of the JSON envelope. On failure it still returns the standard envelope.
 
 ```json
 {
@@ -64,13 +66,15 @@ On failure, `ok` is `false` and `error` contains:
 
 ## Error Codes
 
+Codes marked (reserved) are defined but not yet emitted by runtime code paths; agents should not branch on them.
+
 | Code | Retryable | Meaning |
 |------|-----------|---------|
 | SESSION_NOT_FOUND | no | No active session |
-| SESSION_EXPIRED | no | Session timed out |
+| SESSION_EXPIRED | no | (reserved) Session timed out |
 | SESSION_CONFLICT | yes | Another session active |
 | BACKEND_UNAVAILABLE | yes | Appium not reachable |
-| APP_NOT_FOUND | no | Bundle ID not running |
+| APP_NOT_FOUND | no | (reserved) Bundle ID not running |
 | WINDOW_NOT_FOUND | yes | Window not found yet |
 | ELEMENT_NOT_FOUND | yes | No match; re-inspect |
 | ELEMENT_AMBIGUOUS | no | Multiple matches |
@@ -78,7 +82,7 @@ On failure, `ok` is `false` and `error` contains:
 | ELEMENT_UNBOUND | no | Visible but not bound |
 | ELEMENT_NOT_ACTIONABLE | no | Not visible/enabled |
 | GEOMETRY_UNRELIABLE | no | Bad element bounds |
-| PERMISSION_DENIED | no | No Accessibility access |
+| PERMISSION_DENIED | no | (reserved) No Accessibility access |
 | ACTION_BLOCKED | no | Needs --allow-dangerous |
 | INVALID_ARGUMENT | no | Bad argument |
 | ASSERTION_FAILED | no | Assert condition unmet |
