@@ -44,9 +44,9 @@ def test_duplicate_name_elements_get_distinct_refs(mock_config):
     ref_e1 = adapter._element_refs.get("e1")
     assert ref_e0 is not None
     assert ref_e1 is not None
-    # Extract from (generation, element, name, frame, visible, enabled) tuple
-    _, actual_e0, name_e0, frame_e0, vis_e0, en_e0 = ref_e0
-    _, actual_e1, name_e1, frame_e1, vis_e1, en_e1 = ref_e1
+    # Extract from (generation, element, name, frame, visible, enabled, role) tuple
+    _, actual_e0, name_e0, frame_e0, vis_e0, en_e0, role_e0 = ref_e0
+    _, actual_e1, name_e1, frame_e1, vis_e1, en_e1, role_e1 = ref_e1
     assert actual_e0 is web_el_0
     assert actual_e1 is web_el_1
     assert name_e0 == "5"
@@ -57,6 +57,8 @@ def test_duplicate_name_elements_get_distinct_refs(mock_config):
     assert vis_e1 is True
     assert en_e0 is True
     assert en_e1 is True
+    assert role_e0 == "Button"
+    assert role_e1 == "Button"
 
 
 def test_inspect_elements_include_ref_bound(mock_config):

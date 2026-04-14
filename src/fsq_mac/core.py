@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger("mac-cli.core")
 
 from fsq_mac.models import (
     ErrorCode, Response, ResponseMeta, SafetyLevel,
@@ -353,7 +356,8 @@ class AutomationCore:
                 "elements": elements,
                 "count": len(elements),
             }
-        except Exception:
+        except Exception as exc:
+            logger.debug("_best_effort_snapshot failed: %s", exc)
             data["snapshot_status"] = "failed_best_effort"
         return data
 
@@ -412,8 +416,11 @@ class AutomationCore:
         result = adapter.type_text(query, text, strategy=strategy, input_method=input_method)
         err_code = result.get("error_code")
         if err_code:
+            suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
+            details = result.get("details")
             return error_response("element.type", err_code, result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+                                  session_id=active, meta=self._meta(t, active),
+                                  suggested_next_action=suggested, details=details)
         data = {}
         for key in ("verified", "typed_value", "expected", "element_bounds", "center"):
             if key in result:
@@ -455,8 +462,11 @@ class AutomationCore:
         result = adapter.drag(self._query_from_args(ref=source), self._query_from_args(ref=target), strategy=strategy)
         err_code = result.get("error_code")
         if err_code:
+            suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
+            details = result.get("details")
             return error_response("element.drag", err_code, result.get("detail", ""),
-                                  session_id=active, meta=self._meta(t, active))
+                                  session_id=active, meta=self._meta(t, active),
+                                  suggested_next_action=suggested, details=details)
         data = {}
         self._best_effort_snapshot(adapter, data)
         return success_response("element.drag", data=data, session_id=active, meta=self._meta(t, active))

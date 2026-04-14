@@ -633,9 +633,9 @@ class AppiumMac2Adapter:
 
     def _store_ref(self, eid: str, web_element, name: str | None = None,
                    frame: dict | None = None, visible: bool = True,
-                   enabled: bool = True) -> None:
+                   enabled: bool = True, role: str | None = None) -> None:
         self._element_refs[eid] = (self._snapshot_generation, web_element, name,
-                                   frame, visible, enabled)
+                                   frame, visible, enabled, role)
 
     def _get_ref(self, eid: str):
         """Return (element, error_code) for a stored ref.
@@ -646,7 +646,7 @@ class AppiumMac2Adapter:
         entry = self._element_refs.get(eid)
         if entry is None:
             return None, ErrorCode.ELEMENT_NOT_FOUND
-        # Support (gen, el), (gen, el, name), (gen, el, name, frame, vis, en)
+        # Support (gen, el), (gen, el, name), (gen, el, name, frame, vis, en[, role])
         gen, web_el = entry[0], entry[1]
         if gen != self._snapshot_generation:
             return None, ErrorCode.ELEMENT_REFERENCE_STALE
@@ -664,6 +664,13 @@ class AppiumMac2Adapter:
             return None
         return entry[2]  # (gen, web_el, name, ...)
 
+    def _get_ref_role(self, eid: str) -> str | None:
+        """Return the stored role for a ref (for stale fallback)."""
+        entry = self._element_refs.get(eid)
+        if entry is None or len(entry) < 7:
+            return None
+        return entry[6]  # (gen, web_el, name, frame, vis, en, role)
+
     def _get_ref_cached_state(self, eid: str) -> tuple[dict | None, bool, bool] | None:
         """Return cached (frame, visible, enabled) from inspect-time XML data.
 
@@ -673,7 +680,7 @@ class AppiumMac2Adapter:
         entry = self._element_refs.get(eid)
         if entry is None or len(entry) < 6:
             return None
-        _gen, _el, _name, frame, visible, enabled = entry
+        _gen, _el, _name, frame, visible, enabled = entry[:6]
         if frame is None:
             return None
         return frame, visible, enabled
@@ -681,8 +688,11 @@ class AppiumMac2Adapter:
     def _stale_ref_error(self, ref: str) -> dict:
         """Build a rich stale-ref error dict with cached identity."""
         cached_name = self._get_ref_name(ref)
+        cached_role = self._get_ref_role(ref)
         detail = f"Ref '{ref}' is stale; UI changed since the last inspect"
-        if cached_name:
+        if cached_name and cached_role:
+            detail = f"Ref '{ref}' ({cached_name}, {cached_role}) is stale; UI changed since the last inspect"
+        elif cached_name:
             detail = f"Ref '{ref}' ({cached_name}) is stale; UI changed since the last inspect"
         return {
             "error_code": ErrorCode.ELEMENT_REFERENCE_STALE,
@@ -690,6 +700,7 @@ class AppiumMac2Adapter:
             "details": {
                 "ref": ref,
                 "cached_name": cached_name,
+                "cached_role": cached_role,
                 "reason": "generation_mismatch",
             },
         }
@@ -1053,7 +1064,7 @@ class AppiumMac2Adapter:
                     wel = all_web_els[info.doc_order_index]
                     self._store_ref(info.element_id, wel, name=info.name,
                                     frame=info.frame, visible=info.visible,
-                                    enabled=info.enabled)
+                                    enabled=info.enabled, role=info.role)
                     info.ref_bound = True
                 else:
                     info.ref_bound = False
