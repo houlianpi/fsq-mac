@@ -165,3 +165,22 @@ class TestHelpers:
         assert SafetyLevel.SAFE.value == "safe"
         assert SafetyLevel.GUARDED.value == "guarded"
         assert SafetyLevel.DANGEROUS.value == "dangerous"
+
+
+# -- ref_bound field tests --------------------------------------------------
+
+def test_element_info_ref_bound_default_true():
+    el = ElementInfo(element_id="e0", role="Button")
+    assert el.ref_bound is True
+
+
+def test_element_info_ref_bound_in_to_dict():
+    el = ElementInfo(element_id="e0", role="Button", ref_bound=True)
+    d = el.to_dict()
+    assert d["ref_bound"] is True
+
+
+def test_element_info_ref_bound_false():
+    el = ElementInfo(element_id="e0", role="Button", ref_bound=False)
+    d = el.to_dict()
+    assert d["ref_bound"] is False

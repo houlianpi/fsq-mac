@@ -194,6 +194,7 @@ class ElementInfo:
     frame: dict[str, int] | None = None
     locator_hint: str | None = None
     doc_order_index: int = -1  # internal: position in document-order traversal
+    ref_bound: bool = True  # whether a WebElement ref was bound during inspect
 
     def to_dict(self) -> dict:
         return {
@@ -207,6 +208,7 @@ class ElementInfo:
             "focused": self.focused,
             "frame": self.frame,
             "locator_hint": self.locator_hint,
+            "ref_bound": self.ref_bound,
         }
 
 
