@@ -6,6 +6,21 @@ The format is based on Keep a Changelog and the project follows semantic version
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-14
+
+### Added
+
+- `docs/agent-contract.json` — machine-readable contract source of truth for commands, error codes, and output exceptions.
+- `docs/agent-playbook.md` — recommended orchestration, locator strategy, recovery recipes, and retry guidance for agent consumers.
+- `docs/openapi.json` — minimal OpenAPI 3.0 schema for the daemon HTTP endpoint.
+- `examples/calculator-e2e.sh` and `examples/trace-replay-codegen.sh` — runnable example scripts.
+- `llm`, `ai-agent`, `tool-use` keywords in pyproject.toml for agent-ecosystem discoverability.
+
+### Fixed
+
+- Marked `SESSION_CONFLICT` as reserved (not emitted) in agent-contract.json, cli-reference.md, and llms.txt to match runtime behavior.
+- Cross-referenced agent artifacts from README, CLAUDE.md, quickstart, and cli-reference.
+
 ## [0.3.0] - 2026-04-14
 
 ### Added

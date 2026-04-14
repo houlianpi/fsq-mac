@@ -73,7 +73,7 @@ Codes marked **emitted** are returned by current runtime code paths. Codes marke
 |------|-----------|--------|-------------|
 | `SESSION_NOT_FOUND` | no | emitted | No active session matches the requested ID |
 | `SESSION_EXPIRED` | no | reserved | Session timed out or was cleaned up |
-| `SESSION_CONFLICT` | yes | emitted | Another session is already active; end it first |
+| `SESSION_CONFLICT` | yes | reserved | Another session is already active; end it first |
 | `BACKEND_UNAVAILABLE` | yes | emitted | Appium server is not reachable; run `mac doctor backend` |
 | `APP_NOT_FOUND` | no | reserved | Bundle ID not found among running applications |
 | `WINDOW_NOT_FOUND` | yes | emitted | Target window not found; it may still be loading |

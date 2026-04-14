@@ -1,6 +1,6 @@
 {
   "name": "fsq-mac",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "summary": "Agent-first macOS automation CLI for native app automation.",
   "install": {
     "pip": "pip install fsq-mac",
@@ -55,7 +55,7 @@
   "error_codes": [
     {"code": "SESSION_NOT_FOUND", "retryable": false, "status": "emitted", "description": "No active session matches the requested ID"},
     {"code": "SESSION_EXPIRED", "retryable": false, "status": "reserved", "description": "Session timed out or was cleaned up"},
-    {"code": "SESSION_CONFLICT", "retryable": true, "status": "emitted", "description": "Another session is already active; end it first"},
+    {"code": "SESSION_CONFLICT", "retryable": true, "status": "reserved", "description": "Another session is already active; end it first"},
     {"code": "BACKEND_UNAVAILABLE", "retryable": true, "status": "emitted", "description": "Appium server is not reachable; run 'mac doctor backend'"},
     {"code": "APP_NOT_FOUND", "retryable": false, "status": "reserved", "description": "Bundle ID not found among running applications"},
     {"code": "WINDOW_NOT_FOUND", "retryable": true, "status": "emitted", "description": "Target window not found; it may still be loading"},

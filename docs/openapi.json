@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "fsq-mac daemon API",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "Minimal machine-readable schema for the fsq-mac daemon routes used by the CLI. The stable product contract is the response envelope and error taxonomy documented in docs/agent-contract.json."
   },
   "paths": {

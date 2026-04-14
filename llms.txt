@@ -72,7 +72,7 @@ Codes marked (reserved) are defined but not yet emitted by runtime code paths; a
 |------|-----------|---------|
 | SESSION_NOT_FOUND | no | No active session |
 | SESSION_EXPIRED | no | (reserved) Session timed out |
-| SESSION_CONFLICT | yes | Another session active |
+| SESSION_CONFLICT | yes | (reserved) Another session active |
 | BACKEND_UNAVAILABLE | yes | Appium not reachable |
 | APP_NOT_FOUND | no | (reserved) Bundle ID not running |
 | WINDOW_NOT_FOUND | yes | Window not found yet |
