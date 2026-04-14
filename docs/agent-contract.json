@@ -1,0 +1,97 @@
+{
+  "name": "fsq-mac",
+  "version": "0.3.0",
+  "summary": "Agent-first macOS automation CLI for native app automation.",
+  "install": {
+    "pip": "pip install fsq-mac",
+    "requires": [
+      "macOS",
+      "Python 3.10+",
+      "Appium with Mac2 driver",
+      "Accessibility permissions granted to the host process"
+    ]
+  },
+  "command_pattern": "mac <domain> <action> [args] [flags]",
+  "global_flags": [
+    "--pretty",
+    "--session <id>",
+    "--verbose",
+    "--debug",
+    "--timeout <ms>",
+    "--allow-dangerous",
+    "--strategy <strategy>"
+  ],
+  "response_contract": {
+    "default_format": "json",
+    "top_level_fields": [
+      "ok",
+      "command",
+      "session_id",
+      "data",
+      "error",
+      "meta"
+    ],
+    "error_fields": [
+      "code",
+      "message",
+      "retryable",
+      "details",
+      "suggested_next_action",
+      "doctor_hint"
+    ],
+    "exit_codes": {
+      "success": 0,
+      "failure": 1,
+      "usage_error": 2
+    },
+    "success_exceptions": [
+      {
+        "command": "trace.codegen",
+        "behavior": "prints raw shell script to stdout on success, or 'Script written to <path>' when --output is used",
+        "failure_behavior": "returns the standard JSON envelope"
+      }
+    ]
+  },
+  "error_codes": [
+    {"code": "SESSION_NOT_FOUND", "retryable": false, "status": "emitted", "description": "No active session matches the requested ID"},
+    {"code": "SESSION_EXPIRED", "retryable": false, "status": "reserved", "description": "Session timed out or was cleaned up"},
+    {"code": "SESSION_CONFLICT", "retryable": true, "status": "emitted", "description": "Another session is already active; end it first"},
+    {"code": "BACKEND_UNAVAILABLE", "retryable": true, "status": "emitted", "description": "Appium server is not reachable; run 'mac doctor backend'"},
+    {"code": "APP_NOT_FOUND", "retryable": false, "status": "reserved", "description": "Bundle ID not found among running applications"},
+    {"code": "WINDOW_NOT_FOUND", "retryable": true, "status": "emitted", "description": "Target window not found; it may still be loading"},
+    {"code": "ELEMENT_NOT_FOUND", "retryable": true, "status": "emitted", "description": "No element matches the locator; re-inspect and retry"},
+    {"code": "ELEMENT_AMBIGUOUS", "retryable": false, "status": "emitted", "description": "Multiple elements match; narrow the locator"},
+    {"code": "ELEMENT_REFERENCE_STALE", "retryable": true, "status": "emitted", "description": "Ref was invalidated by a mutation; re-inspect"},
+    {"code": "ELEMENT_UNBOUND", "retryable": false, "status": "emitted", "description": "Element is visible but was not bound to a driver handle"},
+    {"code": "ELEMENT_NOT_ACTIONABLE", "retryable": false, "status": "emitted", "description": "Element failed actionability checks"},
+    {"code": "GEOMETRY_UNRELIABLE", "retryable": false, "status": "emitted", "description": "Element bounds are degenerate or zero-area"},
+    {"code": "PERMISSION_DENIED", "retryable": false, "status": "reserved", "description": "Accessibility permission not granted"},
+    {"code": "ACTION_BLOCKED", "retryable": false, "status": "emitted", "description": "Safety classification blocks this action; use --allow-dangerous"},
+    {"code": "INVALID_ARGUMENT", "retryable": false, "status": "emitted", "description": "Invalid argument supplied to command"},
+    {"code": "ASSERTION_FAILED", "retryable": false, "status": "emitted", "description": "An assert command's condition was not met"},
+    {"code": "TRACE_STEP_NOT_REPLAYABLE", "retryable": false, "status": "emitted", "description": "Trace step cannot be replayed"},
+    {"code": "TYPE_VERIFICATION_FAILED", "retryable": false, "status": "emitted", "description": "Typed text did not match expected value after verification"},
+    {"code": "BACKEND_RPC_TIMEOUT", "retryable": true, "status": "emitted", "description": "Driver operation timed out; retry or refresh snapshot"},
+    {"code": "TIMEOUT", "retryable": true, "status": "emitted", "description": "Command exceeded its timeout; increase --timeout or retry"},
+    {"code": "INTERNAL_ERROR", "retryable": false, "status": "emitted", "description": "Unexpected internal error"}
+  ],
+  "domains": [
+    {"name": "session", "actions": ["start", "get", "list", "end"]},
+    {"name": "app", "actions": ["launch", "activate", "list", "current", "terminate"]},
+    {"name": "window", "actions": ["current", "list", "focus"]},
+    {"name": "element", "actions": ["inspect", "find", "click", "right-click", "double-click", "type", "scroll", "hover", "drag"]},
+    {"name": "input", "actions": ["key", "hotkey", "text", "click-at"]},
+    {"name": "assert", "actions": ["visible", "enabled", "text", "value", "app-running", "app-frontmost"]},
+    {"name": "menu", "actions": ["click"]},
+    {"name": "trace", "actions": ["start", "stop", "status", "replay", "viewer", "codegen"]},
+    {"name": "capture", "actions": ["screenshot", "ui-tree"]},
+    {"name": "wait", "actions": ["element", "window", "app"]},
+    {"name": "doctor", "actions": ["permissions", "backend", "plugins"], "default_behavior": "When no action is provided, the CLI runs all checks."}
+  ],
+  "stability_notes": {
+    "snapshot_contract": "element.inspect is the preferred discovery primitive for element workflows",
+    "web_best_effort_signal": "WEB_CONTENT_BEST_EFFORT means browser/web content is exposed through accessibility rather than DOM-native automation",
+    "reserved_code_rule": "Agents should not branch on reserved codes until they become emitted in a future release"
+  },
+  "source_of_truth_note": "This file is the machine-readable source of truth for agent-facing contract summaries. Human-facing docs should align with it."
+}

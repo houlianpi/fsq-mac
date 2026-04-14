@@ -199,6 +199,13 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _get_subparser(parser: argparse.ArgumentParser, domain: str) -> argparse.ArgumentParser | None:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action.choices.get(domain)
+    return None
+
+
 def _run(args: argparse.Namespace) -> dict:
     """Translate parsed args into a daemon API call."""
     verbosity = "debug" if args.debug else ("verbose" if args.verbose else None)
@@ -308,13 +315,16 @@ def main(argv: list[str] | None = None) -> None:
         args, _ = parser.parse_known_args(remaining, args)
 
     if not args.domain:
-        parser.print_help()
-        sys.exit(1)
+        parser.print_usage(sys.stderr)
+        raise SystemExit(2)
 
     if not getattr(args, "action", None) and args.domain != "doctor":
-        # Show subcommand help
-        parser.parse_args([args.domain, "--help"])
-        return
+        subparser = _get_subparser(parser, args.domain)
+        if subparser is not None:
+            subparser.print_help(sys.stderr)
+        else:
+            parser.print_usage(sys.stderr)
+        raise SystemExit(2)
 
     # doctor without action = run all checks
     if args.domain == "doctor" and not getattr(args, "action", None):

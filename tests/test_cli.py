@@ -59,7 +59,18 @@ class TestParser:
     def test_no_domain_exits(self, capsys):
         with pytest.raises(SystemExit) as exc_info:
             main([])
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "usage:" in captured.err
+
+    def test_domain_without_action_exits_to_stderr(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["session"])
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "usage:" in captured.err
 
 
 class TestParserDomains:

@@ -12,6 +12,8 @@ Global flags available on all commands:
 
 All commands return JSON by default. Use `--pretty` for human-readable formatting.
 
+Machine-readable contract source of truth: `docs/agent-contract.json`.
+
 ## Exit codes
 
 - `0` — command succeeded (`ok: true`)
@@ -61,6 +63,7 @@ Recommended consumer interpretation:
 - use `error.code` for control flow, not regexes over `message`
 - use `error.retryable` as the primary retry hint
 - use `suggested_next_action` and `doctor_hint` as operator guidance, not as required fields
+- use `docs/agent-playbook.md` for recommended retry and recovery flows
 
 ### Error codes
 

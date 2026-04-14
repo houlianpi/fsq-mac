@@ -152,6 +152,9 @@ For repository screenshots and short GIF demos, see [docs/assets/README.md](docs
 
 ## Documentation
 
+- [Agent Contract](docs/agent-contract.json)
+- [Agent Playbook](docs/agent-playbook.md)
+- [OpenAPI](docs/openapi.json)
 - [Quickstart](docs/quickstart.md)
 - [CLI Reference](docs/cli-reference.md)
 - [Architecture](docs/architecture.md)
@@ -162,6 +165,11 @@ For repository screenshots and short GIF demos, see [docs/assets/README.md](docs
 - [Changelog](CHANGELOG.md)
 - [Demo Assets Guide](docs/assets/README.md)
 - [Demo Recording Plan](docs/assets/demo-recording-plan.md)
+
+## Examples
+
+- [Calculator E2E](examples/calculator-e2e.sh)
+- [Trace Replay And Codegen](examples/trace-replay-codegen.sh)
 
 ## Development
 

@@ -109,6 +109,9 @@ Codes marked (reserved) are defined but not yet emitted by runtime code paths; a
 
 ## Documentation
 
+- [Agent Contract](https://github.com/houlianpi/fsq-mac/blob/main/docs/agent-contract.json)
+- [Agent Playbook](https://github.com/houlianpi/fsq-mac/blob/main/docs/agent-playbook.md)
+- [OpenAPI](https://github.com/houlianpi/fsq-mac/blob/main/docs/openapi.json)
 - [Quickstart](https://github.com/houlianpi/fsq-mac/blob/main/docs/quickstart.md)
 - [CLI Reference](https://github.com/houlianpi/fsq-mac/blob/main/docs/cli-reference.md)
 - [Architecture](https://github.com/houlianpi/fsq-mac/blob/main/docs/architecture.md)

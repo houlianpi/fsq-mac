@@ -1,0 +1,95 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "fsq-mac daemon API",
+    "version": "0.3.0",
+    "description": "Minimal machine-readable schema for the fsq-mac daemon routes used by the CLI. The stable product contract is the response envelope and error taxonomy documented in docs/agent-contract.json."
+  },
+  "paths": {
+    "/api/{domain}/{action}": {
+      "post": {
+        "summary": "Invoke a fsq-mac command through the daemon",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Command-specific arguments forwarded to AutomationCore."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unified response envelope",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ResponseEnvelope"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ResponseEnvelope": {
+        "type": "object",
+        "required": ["ok", "command", "session_id", "data", "error", "meta"],
+        "properties": {
+          "ok": {"type": "boolean"},
+          "command": {"type": "string"},
+          "session_id": {"type": "string", "nullable": true},
+          "data": {},
+          "error": {
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/components/schemas/ErrorObject"}
+            ]
+          },
+          "meta": {"$ref": "#/components/schemas/ResponseMeta"}
+        }
+      },
+      "ErrorObject": {
+        "type": "object",
+        "required": ["code", "message", "retryable", "details", "suggested_next_action", "doctor_hint"],
+        "properties": {
+          "code": {"type": "string"},
+          "message": {"type": "string"},
+          "retryable": {"type": "boolean"},
+          "details": {"type": "object", "additionalProperties": true},
+          "suggested_next_action": {"type": "string", "nullable": true},
+          "doctor_hint": {"type": "string", "nullable": true}
+        }
+      },
+      "ResponseMeta": {
+        "type": "object",
+        "required": ["backend", "duration_ms", "timestamp", "frontmost_app", "frontmost_window"],
+        "properties": {
+          "backend": {"type": "string"},
+          "duration_ms": {"type": "integer"},
+          "timestamp": {"type": "string"},
+          "frontmost_app": {"type": "string", "nullable": true},
+          "frontmost_window": {"type": "string", "nullable": true}
+        }
+      }
+    }
+  }
+}

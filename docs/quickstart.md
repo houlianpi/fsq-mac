@@ -234,7 +234,7 @@ mac doctor plugins       # Installed plugins
 
 ## Output formatting
 
-All commands return structured JSON by default. Use `--pretty` for human-readable output:
+All commands return structured JSON by default, except for successful `trace codegen` which prints raw script text or a write confirmation. Use `--pretty` for human-readable output:
 
 ```bash
 mac element inspect --pretty
@@ -242,6 +242,9 @@ mac element inspect --pretty
 
 ## Next steps
 
+- [Agent Contract](agent-contract.json) -- machine-readable command and error contract
+- [Agent Playbook](agent-playbook.md) -- recommended orchestration and recovery patterns
+- [OpenAPI](openapi.json) -- daemon endpoint schema
 - [CLI Reference](cli-reference.md) -- complete list of all commands and flags
 - [Architecture](architecture.md) -- how fsq-mac works internally
 - [Trace & Codegen Guide](trace-codegen.md) -- detailed trace and codegen workflows

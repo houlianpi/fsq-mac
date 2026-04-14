@@ -104,7 +104,7 @@ Trace data is stored as JSON manifests (`trace.json`) with artifacts in a `steps
 
 ## Response envelope
 
-Every API response follows a consistent structure:
+Every daemon API response follows a consistent structure:
 
 ```json
 {
@@ -140,6 +140,8 @@ For non-zero command failures, the CLI keeps the same top-level envelope shape a
 - `error.doctor_hint`
 
 Consumers should treat this JSON structure as the stable failure contract for CLI and daemon responses.
+
+For the higher-level CLI surface, use `docs/agent-contract.json` as the machine-readable source of truth, including the `trace codegen` raw-text success exception.
 
 ## Error taxonomy
 
