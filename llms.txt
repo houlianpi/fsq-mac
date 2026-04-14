@@ -86,6 +86,7 @@ Codes marked (reserved) are defined but not yet emitted by runtime code paths; a
 | ACTION_BLOCKED | no | Needs --allow-dangerous |
 | INVALID_ARGUMENT | no | Bad argument |
 | ASSERTION_FAILED | no | Assert condition unmet |
+| TRACE_STEP_NOT_REPLAYABLE | no | Trace step not replayable |
 | TYPE_VERIFICATION_FAILED | no | Typed text mismatch |
 | BACKEND_RPC_TIMEOUT | yes | Driver timeout |
 | TIMEOUT | yes | Command timeout |
