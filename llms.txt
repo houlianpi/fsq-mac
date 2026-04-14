@@ -1,0 +1,112 @@
+# fsq-mac
+
+> Agent-first macOS native application automation CLI.
+
+fsq-mac is a Python command-line tool for automating macOS applications through Appium Mac2. It is designed for agent and tool use: commands return structured JSON, sessions are managed explicitly, and higher-level workflows such as trace, replay, code generation, and plugins are built in.
+
+## Install
+
+```bash
+pip install fsq-mac
+```
+
+Requires: macOS, Python 3.10+, Appium with Mac2 driver, Accessibility permissions granted to the host process.
+
+## Command Pattern
+
+```
+mac <domain> <action> [args] [flags]
+```
+
+Global flags: `--pretty`, `--session <id>`, `--verbose`, `--debug`, `--timeout <ms>`, `--allow-dangerous`
+
+## Domains
+
+- `session` — start, get, list, end
+- `app` — launch, activate, list, current, terminate
+- `window` — current, list, focus
+- `element` — inspect, find, click, right-click, double-click, type, scroll, hover, drag
+- `input` — key, hotkey, text, click-at
+- `assert` — visible, enabled, text, value, app-running, app-frontmost
+- `menu` — click
+- `trace` — start, stop, status, replay, viewer, codegen
+- `capture` — screenshot, ui-tree
+- `wait` — element, window, app
+- `doctor` — (no action), permissions, backend, plugins
+
+## Response Envelope
+
+Every command returns:
+
+```json
+{
+  "ok": true,
+  "command": "element.click",
+  "session_id": "s1",
+  "data": { ... },
+  "error": null,
+  "meta": {
+    "backend": "appium_mac2",
+    "duration_ms": 42,
+    "timestamp": "2026-04-14T00:00:00Z",
+    "frontmost_app": "com.apple.Safari",
+    "frontmost_window": "Example"
+  }
+}
+```
+
+On failure, `ok` is `false` and `error` contains:
+- `code` — machine-readable error code (use for control flow)
+- `message` — human-readable description
+- `retryable` — boolean retry hint
+- `suggested_next_action` — recommended recovery command
+- `doctor_hint` — diagnostic hint if applicable
+
+## Error Codes
+
+| Code | Retryable | Meaning |
+|------|-----------|---------|
+| SESSION_NOT_FOUND | no | No active session |
+| SESSION_EXPIRED | no | Session timed out |
+| SESSION_CONFLICT | yes | Another session active |
+| BACKEND_UNAVAILABLE | yes | Appium not reachable |
+| APP_NOT_FOUND | no | Bundle ID not running |
+| WINDOW_NOT_FOUND | yes | Window not found yet |
+| ELEMENT_NOT_FOUND | yes | No match; re-inspect |
+| ELEMENT_AMBIGUOUS | no | Multiple matches |
+| ELEMENT_REFERENCE_STALE | yes | Ref invalidated |
+| ELEMENT_UNBOUND | no | Visible but not bound |
+| ELEMENT_NOT_ACTIONABLE | no | Not visible/enabled |
+| GEOMETRY_UNRELIABLE | no | Bad element bounds |
+| PERMISSION_DENIED | no | No Accessibility access |
+| ACTION_BLOCKED | no | Needs --allow-dangerous |
+| INVALID_ARGUMENT | no | Bad argument |
+| ASSERTION_FAILED | no | Assert condition unmet |
+| TYPE_VERIFICATION_FAILED | no | Typed text mismatch |
+| BACKEND_RPC_TIMEOUT | yes | Driver timeout |
+| TIMEOUT | yes | Command timeout |
+| INTERNAL_ERROR | no | Unexpected error |
+
+## Safety Classification
+
+- **SAFE** — read-only, no side effects (inspect, list, assert, capture)
+- **GUARDED** — mutations, allowed by default (click, type, launch, activate)
+- **DANGEROUS** — destructive, requires `--allow-dangerous` (terminate)
+
+## Element Refs
+
+`element inspect` and `element find` assign static refs (`e0`, `e1`, ...). Refs become stale after any mutating action. Re-inspect to get fresh refs.
+
+## Exit Codes
+
+- `0` — success (`ok: true`)
+- `1` — failure (`ok: false`)
+
+## Documentation
+
+- [Quickstart](https://github.com/houlianpi/fsq-mac/blob/main/docs/quickstart.md)
+- [CLI Reference](https://github.com/houlianpi/fsq-mac/blob/main/docs/cli-reference.md)
+- [Architecture](https://github.com/houlianpi/fsq-mac/blob/main/docs/architecture.md)
+- [Trace & Codegen](https://github.com/houlianpi/fsq-mac/blob/main/docs/trace-codegen.md)
+- [Plugins](https://github.com/houlianpi/fsq-mac/blob/main/docs/plugins.md)
+- [Changelog](https://github.com/houlianpi/fsq-mac/blob/main/CHANGELOG.md)

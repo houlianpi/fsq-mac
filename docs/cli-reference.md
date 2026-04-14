@@ -3,10 +3,19 @@
 All commands follow the pattern: `mac <domain> <action> [args] [flags]`
 
 Global flags available on all commands:
-- `--pretty` — human-readable output
-- `--json` — JSON output (default)
-- `--sid <session-id>` — target a specific session
+- `--pretty` — human-readable output (default: JSON)
+- `--session <session-id>` — target a specific session
 - `--verbose` / `--debug` — logging verbosity
+- `--strategy <strategy>` — element locator strategy (default: accessibility_id)
+- `--timeout <ms>` — command timeout in milliseconds (default: 120000)
+- `--allow-dangerous` — required for DANGEROUS commands
+
+All commands return JSON by default. Use `--pretty` for human-readable formatting.
+
+## Exit codes
+
+- `0` — command succeeded (`ok: true`)
+- `1` — command failed (`ok: false`)
 
 ## Error handling
 
@@ -50,6 +59,32 @@ Recommended consumer interpretation:
 - use `error.code` for control flow, not regexes over `message`
 - use `error.retryable` as the primary retry hint
 - use `suggested_next_action` and `doctor_hint` as operator guidance, not as required fields
+
+### Error codes
+
+| Code | Retryable | Description |
+|------|-----------|-------------|
+| `SESSION_NOT_FOUND` | no | No active session matches the requested ID |
+| `SESSION_EXPIRED` | no | Session timed out or was cleaned up |
+| `SESSION_CONFLICT` | yes | Another session is already active; end it first |
+| `BACKEND_UNAVAILABLE` | yes | Appium server is not reachable; run `mac doctor backend` |
+| `APP_NOT_FOUND` | no | Bundle ID not found among running applications |
+| `WINDOW_NOT_FOUND` | yes | Target window not found; it may still be loading |
+| `ELEMENT_NOT_FOUND` | yes | No element matches the locator; re-inspect and retry |
+| `ELEMENT_AMBIGUOUS` | no | Multiple elements match; narrow the locator |
+| `ELEMENT_REFERENCE_STALE` | yes | Ref was invalidated by a mutation; re-inspect |
+| `ELEMENT_UNBOUND` | no | Element is visible but was not bound to a driver handle |
+| `ELEMENT_NOT_ACTIONABLE` | no | Element failed actionability checks (not visible or not enabled) |
+| `GEOMETRY_UNRELIABLE` | no | Element bounds are degenerate or zero-area |
+| `PERMISSION_DENIED` | no | Accessibility permission not granted |
+| `ACTION_BLOCKED` | no | Safety classification blocks this action; use `--allow-dangerous` |
+| `INVALID_ARGUMENT` | no | Invalid argument supplied to command |
+| `ASSERTION_FAILED` | no | An assert command's condition was not met |
+| `TRACE_STEP_NOT_REPLAYABLE` | no | Trace step cannot be replayed (missing locator or unsupported action) |
+| `TYPE_VERIFICATION_FAILED` | no | Typed text did not match expected value after verification |
+| `BACKEND_RPC_TIMEOUT` | yes | Driver operation timed out; retry or refresh snapshot |
+| `TIMEOUT` | yes | Command exceeded its timeout; increase `--timeout` or retry |
+| `INTERNAL_ERROR` | no | Unexpected internal error |
 
 For element commands, `error.details` may also include:
 
@@ -137,6 +172,9 @@ Current `binding_warnings` may include:
 |---------|-------------|--------|
 | `mac element inspect` | Inspect all visible elements | SAFE |
 | `mac element find` | Find elements matching locator | SAFE |
+
+`element find` accepts locator flags and an optional `--first-match` flag to return only the first match.
+
 | `mac element click` | Click an element | GUARDED |
 | `mac element right-click` | Right-click an element | GUARDED |
 | `mac element double-click` | Double-click an element | GUARDED |
@@ -148,8 +186,11 @@ Current `binding_warnings` may include:
 ```bash
 mac element inspect --pretty
 mac element find --role AXButton
+mac element find --role AXButton --first-match
 mac element click --role AXButton --name OK
+mac element click e0
 mac element type "hello world" --role AXTextField
+mac element type e3 "hello world"
 mac element type "hello world" --role AXTextField --input-method keys
 mac element scroll down --role AXScrollArea
 mac element right-click --name "File"

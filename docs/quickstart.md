@@ -36,6 +36,14 @@ After installation, the CLI is available as `mac`.
 
 If you are running directly from the source checkout without installing the package, use `uv run mac ...` as a temporary alternative.
 
+### Verify installation
+
+```bash
+mac doctor
+```
+
+This checks Accessibility permissions, Appium server, Mac2 driver, and plugins in one step. Fix any issues it reports before proceeding.
+
 ## Your first session
 
 ### 1. Start Appium server
@@ -45,6 +53,8 @@ In a separate terminal:
 ```bash
 appium
 ```
+
+> If `mac session start` later fails with `BACKEND_UNAVAILABLE`, ensure Appium is running and reachable at `http://127.0.0.1:4723`.
 
 ### 2. Start a session
 

@@ -124,8 +124,7 @@ All wait commands accept `--timeout <ms>` (default: 10000) and `--strategy <stra
 | Flag | Description |
 |------|-------------|
 | `--pretty` | Human-readable output |
-| `--json` | JSON output (default) |
-| `--sid <session-id>` | Target a specific session |
+| `--session <session-id>` | Target a specific session |
 | `--verbose` / `--debug` | Logging verbosity |
 | `--strategy <strategy>` | Element location strategy |
 | `--timeout <ms>` | Command timeout in milliseconds |

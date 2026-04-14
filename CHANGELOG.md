@@ -6,6 +6,29 @@ The format is based on Keep a Changelog and the project follows semantic version
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-14
+
+### Added
+
+- Paste-first text input mode (`--input-method paste|keys|auto`) for more reliable text entry via clipboard.
+- Best-effort auto-snapshot after mutating element actions for immediate post-action UI state.
+- Stale ref error diagnostics with cached identity (role, name, element_bounds) for easier debugging.
+- `ref_bound` field in ElementInfo for immediate bound/unbound status.
+- App assertions: `assert app-running`, `assert app-frontmost` for verifying application state.
+- Geometry response metadata (`element_bounds`, `center`) on element actions.
+- QA testing skill for macOS application acceptance, exploratory, and regression testing.
+
+### Fixed
+
+- Element ref off-by-one indexing and stale ref fallback handling.
+- Menu click process targeting, stale window metadata, and arrow key mapping.
+- CI test failures on Linux caused by macOS-only adapter assumptions.
+
+### Changed
+
+- Refined inspect actionability contract with explicit `actionable`, `checks`, and `evidence_source` fields.
+- Refined automation action contract: mutating actions now return `resolved_element`, `actionability_used`, and optional `snapshot`.
+
 ## [0.2.1] - 2026-04-07
 
 ### Fixed

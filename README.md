@@ -24,6 +24,9 @@ Demo screenshots and GIF guidance live in [docs/assets/README.md](docs/assets/RE
 
 ## Install
 
+> **Requires:** macOS, Python 3.10+, Appium with Mac2 driver, and Accessibility permissions.
+> See [Quickstart](docs/quickstart.md) for full setup instructions.
+
 ```bash
 pip install fsq-mac
 ```
@@ -96,7 +99,26 @@ mac trace stop
 mac trace replay artifacts/traces/demo
 ```
 
-Inspect and action responses are machine-consumable. Successful element actions can include:
+Inspect and action responses are machine-consumable. Example success envelope:
+
+```json
+{
+  "ok": true,
+  "command": "element.click",
+  "session_id": "s1",
+  "data": {
+    "resolved_element": {"ref": "e0", "role": "AXButton", "name": "OK"},
+    "actionability_used": {"actionable": true, "checks": {"has_ref": true, "has_geometry": true, "visible": true, "enabled": true}},
+    "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
+    "center": {"x": 50, "y": 40},
+    "snapshot_status": "attached"
+  },
+  "error": null,
+  "meta": {"backend": "appium_mac2", "duration_ms": 42}
+}
+```
+
+Successful element actions can include:
 
 - `resolved_element`
 - `actionability_used`
@@ -112,6 +134,11 @@ mac trace codegen artifacts/traces/demo
 ```
 
 For repository screenshots and short GIF demos, see [docs/assets/README.md](docs/assets/README.md).
+
+## Exit Codes
+
+- `0` — command succeeded (`ok: true`)
+- `1` — command failed (`ok: false`)
 
 ## Prerequisites
 
