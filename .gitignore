@@ -38,3 +38,6 @@ uv.lock
 # Runtime artifacts
 artifacts/
 log/
+
+# QA screenshots
+qa-screenshots/
