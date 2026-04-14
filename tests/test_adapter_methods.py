@@ -163,6 +163,9 @@ class TestClick:
             result = adapter_with_driver.click("e0")
         assert result["element_bounds"] == {"x": 0, "y": 0, "width": 100, "height": 50}
         assert result["center"] == {"x": 50, "y": 25}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["resolved_element"]["ref_status"] == "bound"
+        assert result["actionability_used"]["actionable"] is True
 
     def test_click_not_found(self, adapter_with_driver):
         adapter_with_driver._driver.find_elements.return_value = []
@@ -233,7 +236,87 @@ class TestClick:
         with patch("time.sleep"), patch("time.time") as mock_time:
             mock_time.side_effect = [0.0, 0.2, 0.4, 0.6, 1.2]
             result = adapter_with_driver.click(LocatorQuery(role="AXButton", name="Submit"), timeout=1)
-        assert result["error_code"] == ErrorCode.TIMEOUT
+        assert result["error_code"] == ErrorCode.ELEMENT_NOT_ACTIONABLE
+        assert result["details"]["checks"]["enabled"] is False
+        assert result["details"]["state_source"] == "rpc"
+        assert result["details"]["recovery_hint"] == "Re-run inspect and wait for the element to become visible and enabled before retrying."
+
+    def test_click_not_actionable_marks_web_content_as_best_effort(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 10, "y": 20}
+        mock_el.size = {"width": 80, "height": 30}
+        mock_el.is_displayed.return_value = True
+        mock_el.get_attribute.side_effect = lambda attr: {
+            "enabled": "false",
+            "visible": "true",
+            "displayed": "true",
+            "role": "AXWebArea",
+            "name": "Docs",
+        }.get(attr, "")
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        with patch("time.sleep"), patch("time.time") as mock_time:
+            mock_time.side_effect = [0.0, 0.2, 0.4, 0.6, 1.2]
+            result = adapter_with_driver.click(LocatorQuery(role="AXWebArea", name="Docs"), timeout=1)
+        assert result["error_code"] == ErrorCode.ELEMENT_NOT_ACTIONABLE
+        assert result["details"]["web_best_effort"] is True
+
+    def test_click_returns_geometry_unreliable_when_only_degenerate_frame_is_available(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 1, "height": 1}
+        adapter_with_driver._store_ref("e0", mock_el)
+        with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
+            MockAC.return_value.move_to_element.return_value.click.return_value.perform.side_effect = Exception("driver click failed")
+            mock_el.click.side_effect = Exception("element click failed")
+            with patch.object(adapter_with_driver, "input_click_at", return_value={"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": "click-at failed"}):
+                with patch("time.sleep"):
+                    result = adapter_with_driver.click("e0")
+        assert result["error_code"] == ErrorCode.GEOMETRY_UNRELIABLE
+        assert result["details"]["ref"] == "e0"
+        assert result["details"]["element_bounds"] == {"x": 0, "y": 0, "width": 1, "height": 1}
+        assert result["details"]["recovery_hint"] == "Refresh the snapshot and avoid coordinate fallback for this element until stable bounds are available."
+
+    def test_click_geometry_unreliable_marks_web_content_as_best_effort(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.tag_name = "XCUIElementTypeWebArea"
+        mock_el.location = {"x": 0, "y": 0}
+        mock_el.size = {"width": 1, "height": 1}
+        mock_el.get_attribute.side_effect = lambda attr: {"name": "Page"}.get(attr, "")
+        adapter_with_driver._store_ref("e0", mock_el)
+        with patch("fsq_mac.adapters.appium_mac2.ActionChains") as MockAC:
+            MockAC.return_value.move_to_element.return_value.click.return_value.perform.side_effect = Exception("driver click failed")
+            mock_el.click.side_effect = Exception("element click failed")
+            with patch.object(adapter_with_driver, "input_click_at", return_value={"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": "click-at failed"}):
+                with patch("time.sleep"):
+                    result = adapter_with_driver.click("e0")
+        assert result["error_code"] == ErrorCode.GEOMETRY_UNRELIABLE
+        assert result["details"]["web_best_effort"] is True
+
+    def test_click_unbound_ref_returns_element_unbound(self, adapter_with_driver):
+        adapter_with_driver._driver.page_source = (
+            '<AppiumAUT>'
+            '<XCUIElementTypeButton name="A" visible="true" enabled="true" x="0" y="0" width="50" height="50"/>'
+            '<XCUIElementTypeButton name="B" visible="true" enabled="true" x="60" y="0" width="50" height="50"/>'
+            '</AppiumAUT>'
+        )
+        mock_el = MagicMock()
+        mock_el.location = {"x": 0, "y": 0}
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        adapter_with_driver.inspect()
+        result = adapter_with_driver.click("e1")
+        assert result["error_code"] == ErrorCode.ELEMENT_UNBOUND
+
+    def test_click_probe_timeout_returns_backend_rpc_timeout(self, adapter_with_driver):
+        mock_el = MagicMock()
+        mock_el.location = {"x": 10, "y": 20}
+        mock_el.size = {"width": 80, "height": 30}
+        adapter_with_driver._driver.find_elements.return_value = [mock_el]
+        with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=TimeoutError("rpc probe hung")):
+            result = adapter_with_driver.click(LocatorQuery(role="AXButton", name="Submit"), timeout=1)
+        assert result["error_code"] == ErrorCode.BACKEND_RPC_TIMEOUT
+        assert result["details"]["checks"]["rpc_probe"] == "timed_out"
+        assert result["details"]["state_source"] == "rpc"
+        assert result["details"]["recovery_hint"] == "Retry the action or refresh the UI snapshot if the backend remains slow."
 
 
 class TestRightClick:
@@ -293,6 +376,8 @@ class TestTypeText:
         assert result["verified"] is True
         assert result["element_bounds"] == {"x": 8, "y": 9, "width": 60, "height": 20}
         assert result["center"] == {"x": 38, "y": 19}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["actionability_used"]["actionable"] is True
         mock_paste.assert_called_once_with("hello")
 
     def test_type_mismatch(self, adapter_with_driver):
@@ -336,7 +421,9 @@ class TestDrag:
         adapter_with_driver._store_ref("e1", tgt)
         with patch("fsq_mac.adapters.appium_mac2.ActionChains"):
             result = adapter_with_driver.drag("e0", "e1")
-        assert result == {}
+        assert result["resolved_element"]["ref"] == "e0"
+        assert result["resolved_target"]["ref"] == "e1"
+        assert result["actionability_used"]["actionable"] is True
 
     def test_drag_source_not_found(self, adapter_with_driver):
         result = adapter_with_driver.drag("e99", "e98")
@@ -614,14 +701,26 @@ class TestActionableWait:
         mock_el = MagicMock()
         with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=TimeoutError("Driver operation timed out after 0.5s")):
             result = adapter_with_driver._wait_for_actionable(mock_el, timeout=1)
-        assert result["error_code"] == ErrorCode.TIMEOUT
+        assert result["error_code"] == ErrorCode.BACKEND_RPC_TIMEOUT
         assert "probing element state" in result["detail"]
+        assert result["details"]["checks"]["rpc_probe"] == "timed_out"
 
     def test_wait_for_actionable_returns_stale_when_probe_raises(self, adapter_with_driver):
         mock_el = MagicMock()
         with patch.object(adapter_with_driver, "_run_with_timeout", side_effect=RuntimeError("stale element")):
             result = adapter_with_driver._wait_for_actionable(mock_el, timeout=1)
         assert result["error_code"] == ErrorCode.ELEMENT_REFERENCE_STALE
+
+    def test_wait_for_actionable_cached_state_not_actionable_returns_element_not_actionable(self, adapter_with_driver):
+        mock_el = MagicMock()
+        result = adapter_with_driver._wait_for_actionable(
+            mock_el,
+            timeout=1,
+            cached_state=({"x": 0, "y": 0, "width": 10, "height": 10}, True, False),
+        )
+        assert result["error_code"] == ErrorCode.ELEMENT_NOT_ACTIONABLE
+        assert result["details"]["checks"]["enabled"] is False
+        assert result["details"]["state_source"] == "xml"
 
 
 class TestFind:

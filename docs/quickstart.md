@@ -71,11 +71,54 @@ mac assert app-frontmost com.apple.Safari
 ### 4. Inspect the UI
 
 ```bash
-# Inspect all visible elements
-mac element inspect
+# Inspect all visible elements as a structured snapshot
+mac element inspect --pretty
 
 # Find a specific element
 mac element find --role AXButton --name OK
+```
+
+`element inspect` returns a snapshot-oriented payload. The most important top-level fields are:
+
+- `snapshot_id`
+- `generation`
+- `backend`
+- `binding_mode`
+- `binding_warnings`
+- `elements`
+
+Typical meanings:
+
+- `binding_mode=heuristic`: refs were bound through the current Appium Mac2 accessibility heuristic
+- `binding_mode=unbound_only`: the snapshot contains visible elements, but none received actionable refs
+- `binding_warnings` may include `WEB_CONTENT_BEST_EFFORT`: browser web content is available, but still only through accessibility, not DOM-native guarantees
+
+Example:
+
+```json
+{
+  "ok": true,
+  "command": "element.inspect",
+  "data": {
+    "snapshot_id": "snap_12",
+    "generation": 12,
+    "backend": "appium_mac2",
+    "binding_mode": "heuristic",
+    "binding_warnings": [],
+    "elements": [
+      {
+        "ref": "e0",
+        "role": "Button",
+        "name": "OK",
+        "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
+        "center": {"x": 50, "y": 40},
+        "ref_status": "bound",
+        "state_source": "xml"
+      }
+    ],
+    "count": 1
+  }
+}
 ```
 
 ### 5. Interact with elements
@@ -96,6 +139,17 @@ mac input key Return
 # Type into the focused element using the default paste-first path
 mac input text "hello world"
 ```
+
+Successful element actions may also attach machine-consumable context such as:
+
+- `resolved_element`
+- `actionability_used`
+- `element_bounds`
+- `center`
+- `snapshot_status`
+- optional best-effort `snapshot`
+
+If an action fails, prefer `error.code` and `error.details` over parsing free-form messages.
 
 ### 6. End the session
 

@@ -79,6 +79,11 @@ def test_inspect_elements_include_ref_bound(mock_config):
     elements = adapter.inspect()
     assert len(elements) >= 1
     assert elements[0]["ref_bound"] is True
+    assert elements[0]["ref"] == "e0"
+    assert elements[0]["element_bounds"] == {"x": 0, "y": 0, "width": 50, "height": 50}
+    assert elements[0]["center"] == {"x": 25, "y": 25}
+    assert elements[0]["ref_status"] == "bound"
+    assert elements[0]["state_source"] == "xml"
 
 
 def test_inspect_unbound_element_has_ref_bound_false(mock_config):
@@ -102,6 +107,8 @@ def test_inspect_unbound_element_has_ref_bound_false(mock_config):
     assert len(elements) == 2
     assert elements[0]["ref_bound"] is True
     assert elements[1]["ref_bound"] is False
+    assert elements[1]["ref_status"] == "unbound"
+    assert elements[1]["state_source"] == "xml"
 
 
 def test_inspect_no_alignment_verification(mock_config):

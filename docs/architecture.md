@@ -53,6 +53,12 @@ session end -> disconnects adapter -> cleans up state
 - Each session has a unique ID and its own adapter instance.
 - Sessions track frontmost app/window metadata.
 
+For element-oriented workflows, the product contract is now snapshot-first:
+
+- `element inspect` returns a structured snapshot with `snapshot_id`, `generation`, `backend`, `binding_mode`, `binding_warnings`, and `elements`
+- mutating element actions may attach a best-effort follow-up `snapshot`
+- action responses can include `resolved_element`, `resolved_target`, `actionability_used`, `element_bounds`, and `center`
+
 ## Adapter protocol
 
 Adapters implement a set of methods for automation:
@@ -149,6 +155,10 @@ Common codes and their intended meaning:
 | `WINDOW_NOT_FOUND` | observation | The requested window could not be found | yes |
 | `ELEMENT_NOT_FOUND` | observation | The requested element could not be found | yes |
 | `ELEMENT_REFERENCE_STALE` | observation | A previously returned element ref is no longer valid | yes |
+| `ELEMENT_UNBOUND` | observation | The element exists in the current snapshot but no actionable ref was bound | no |
+| `ELEMENT_NOT_ACTIONABLE` | observation | The backend can see the element but cannot prove it is actionable yet | no |
+| `GEOMETRY_UNRELIABLE` | observation | The backend only has degenerate or unreliable bounds for coordinate fallback | no |
+| `BACKEND_RPC_TIMEOUT` | backend/timing | A backend RPC timed out while resolving or probing an element | yes |
 | `ACTION_BLOCKED` | safety/precondition | The command is blocked by an explicit safety requirement | no |
 | `INVALID_ARGUMENT` | caller/input | The command arguments are invalid | no |
 | `ASSERTION_FAILED` | assertion | The target element exists, but the asserted state/value is wrong | no |
@@ -168,9 +178,17 @@ Current retryable set:
 - `WINDOW_NOT_FOUND`
 - `ELEMENT_NOT_FOUND`
 - `ELEMENT_REFERENCE_STALE`
+- `BACKEND_RPC_TIMEOUT`
 - `TIMEOUT`
 
 Treat `error.retryable` as the intended orchestration signal for whether a retry or refresh strategy is usually reasonable. It is a product-level hint, not a guarantee that retrying will succeed in every environment.
+
+For browser and web-content flows, `binding_warnings` and `error.details` may explicitly carry best-effort signals:
+
+- `WEB_CONTENT_BEST_EFFORT` in snapshot warnings
+- `web_best_effort=true` in action failure details
+
+These signals mean the current backend is exposing web content through accessibility and should not be treated as DOM-native automation.
 
 ## Performance optimization
 

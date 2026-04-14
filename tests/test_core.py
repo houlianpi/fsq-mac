@@ -173,11 +173,15 @@ class TestElementOps:
         adapter.click.return_value = {
             "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
             "center": {"x": 50, "y": 40},
+            "resolved_element": {"ref": "e0", "role": "AXButton", "ref_status": "bound"},
+            "actionability_used": {"actionable": True, "evidence_source": "xml"},
         }
         resp = core.element_click("e0")
         assert resp.ok is True
         assert resp.data["element_bounds"]["width"] == 80
         assert resp.data["center"] == {"x": 50, "y": 40}
+        assert resp.data["resolved_element"]["ref"] == "e0"
+        assert resp.data["actionability_used"]["actionable"] is True
 
     def test_element_click_lazy_locator(self, core_with_session):
         core, adapter = core_with_session
@@ -196,11 +200,104 @@ class TestElementOps:
         assert resp.ok is False
         assert resp.error.code == ErrorCode.ELEMENT_REFERENCE_STALE
 
+    def test_element_click_not_actionable_preserves_details_and_hint(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.click.return_value = {
+            "error_code": ErrorCode.ELEMENT_NOT_ACTIONABLE,
+            "detail": "Element not actionable",
+            "details": {
+                "state_source": "xml",
+                "checks": {"visible": True, "enabled": False},
+                "recovery_hint": "Re-run inspect and wait for the element to become visible and enabled before retrying.",
+            },
+        }
+        resp = core.element_click("e0")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.ELEMENT_NOT_ACTIONABLE
+        assert resp.error.details["checks"]["enabled"] is False
+        assert resp.error.suggested_next_action == "mac element inspect"
+
+    def test_element_click_web_best_effort_failure_details_are_preserved(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.click.return_value = {
+            "error_code": ErrorCode.GEOMETRY_UNRELIABLE,
+            "detail": "Geometry unreliable",
+            "details": {
+                "state_source": "xml",
+                "web_best_effort": True,
+                "recovery_hint": "Refresh the snapshot and avoid coordinate fallback for this element until stable bounds are available.",
+            },
+        }
+        resp = core.element_click("e0")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.GEOMETRY_UNRELIABLE
+        assert resp.error.details["web_best_effort"] is True
+        assert resp.error.suggested_next_action == "mac element inspect"
+
+    def test_element_click_backend_rpc_timeout_uses_retry_hint(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.click.return_value = {
+            "error_code": ErrorCode.BACKEND_RPC_TIMEOUT,
+            "detail": "Timed out while probing element state",
+            "details": {
+                "state_source": "rpc",
+                "checks": {"rpc_probe": "timed_out"},
+                "recovery_hint": "Retry the action or refresh the UI snapshot if the backend remains slow.",
+            },
+        }
+        resp = core.element_click("e0")
+        assert resp.ok is False
+        assert resp.error.code == ErrorCode.BACKEND_RPC_TIMEOUT
+        assert resp.error.details["checks"]["rpc_probe"] == "timed_out"
+        assert resp.error.suggested_next_action == "Retry the action or refresh with 'mac element inspect'"
+
     def test_element_inspect(self, core_with_session):
         core, adapter = core_with_session
         adapter.inspect.return_value = [{"element_id": "e0", "role": "Button"}]
         resp = core.element_inspect()
         assert resp.ok is True
+        assert resp.data["snapshot_id"].startswith("snap_")
+        assert isinstance(resp.data["generation"], int)
+        assert resp.data["backend"] == "appium_mac2"
+        assert resp.data["binding_mode"] == "heuristic"
+        assert resp.data["binding_warnings"] == []
+        assert resp.data["elements"][0]["element_id"] == "e0"
+        assert resp.data["count"] == 1
+
+    def test_element_inspect_reports_web_content_best_effort_warning(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.inspect.return_value = [
+            {"element_id": "e0", "role": "WebArea", "name": "Docs", "ref_bound": True, "ref_status": "bound"},
+            {"element_id": "e1", "role": "Button", "name": "Reload", "ref_bound": True, "ref_status": "bound"},
+        ]
+        resp = core.element_inspect()
+        assert resp.ok is True
+        warnings = {warning["code"]: warning for warning in resp.data["binding_warnings"]}
+        assert warnings["WEB_CONTENT_BEST_EFFORT"]["count"] == 1
+
+    def test_element_inspect_unbound_only_snapshot_mode(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.inspect.return_value = [
+            {"element_id": "e0", "role": "Button", "ref_bound": False, "ref_status": "unbound"},
+            {"element_id": "e1", "role": "StaticText", "ref_bound": False, "ref_status": "unbound"},
+        ]
+        resp = core.element_inspect()
+        assert resp.ok is True
+        assert resp.data["binding_mode"] == "unbound_only"
+        assert resp.data["binding_warnings"][0]["code"] == "UNBOUND_ELEMENTS_PRESENT"
+        assert resp.data["binding_warnings"][0]["count"] == 2
+
+    def test_element_inspect_reports_partial_unbound_warning(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.inspect.return_value = [
+            {"element_id": "e0", "role": "Button", "ref_bound": True, "ref_status": "bound"},
+            {"element_id": "e1", "role": "StaticText", "ref_bound": False, "ref_status": "unbound"},
+        ]
+        resp = core.element_inspect()
+        assert resp.ok is True
+        assert resp.data["binding_mode"] == "heuristic"
+        assert resp.data["binding_warnings"][0]["code"] == "UNBOUND_ELEMENTS_PRESENT"
+        assert resp.data["binding_warnings"][0]["count"] == 1
 
     def test_element_find_no_match(self, core_with_session):
         core, adapter = core_with_session
@@ -260,9 +357,15 @@ class TestElementOps:
 
     def test_element_drag(self, core_with_session):
         core, adapter = core_with_session
-        adapter.drag.return_value = {}
+        adapter.drag.return_value = {
+            "resolved_element": {"ref": "e0", "role": "AXButton", "ref_status": "bound"},
+            "resolved_target": {"ref": "e1", "role": "AXButton", "ref_status": "bound"},
+            "actionability_used": {"actionable": True, "evidence_source": "xml"},
+        }
         resp = core.element_drag("e0", "e1")
         assert resp.ok is True
+        assert resp.data["resolved_element"]["ref"] == "e0"
+        assert resp.data["resolved_target"]["ref"] == "e1"
 
     def test_element_drag_error(self, core_with_session):
         core, adapter = core_with_session
@@ -354,6 +457,22 @@ class TestInputOps:
         assert resp.ok is True
         assert resp.data["element_bounds"]["height"] == 18
         adapter.input_text.assert_called_once_with("hello", input_method="paste")
+
+    def test_element_type_preserves_action_contract_fields(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.type_text.return_value = {
+            "verified": True,
+            "typed_value": "hello",
+            "expected": "hello",
+            "element_bounds": {"x": 10, "y": 20, "width": 50, "height": 18},
+            "center": {"x": 35, "y": 29},
+            "resolved_element": {"ref": "e0", "role": "AXTextField", "ref_status": "bound"},
+            "actionability_used": {"actionable": True, "evidence_source": "xml"},
+        }
+        resp = core.element_type("e0", "hello")
+        assert resp.ok is True
+        assert resp.data["resolved_element"]["ref"] == "e0"
+        assert resp.data["actionability_used"]["actionable"] is True
 
     def test_input_text_with_input_method(self, core_with_session):
         core, adapter = core_with_session

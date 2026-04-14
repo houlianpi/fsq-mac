@@ -26,12 +26,16 @@ class ErrorCode(str, Enum):
     ELEMENT_NOT_FOUND = "ELEMENT_NOT_FOUND"
     ELEMENT_AMBIGUOUS = "ELEMENT_AMBIGUOUS"
     ELEMENT_REFERENCE_STALE = "ELEMENT_REFERENCE_STALE"
+    ELEMENT_UNBOUND = "ELEMENT_UNBOUND"
+    ELEMENT_NOT_ACTIONABLE = "ELEMENT_NOT_ACTIONABLE"
+    GEOMETRY_UNRELIABLE = "GEOMETRY_UNRELIABLE"
     PERMISSION_DENIED = "PERMISSION_DENIED"
     ACTION_BLOCKED = "ACTION_BLOCKED"
     INVALID_ARGUMENT = "INVALID_ARGUMENT"
     ASSERTION_FAILED = "ASSERTION_FAILED"
     TRACE_STEP_NOT_REPLAYABLE = "TRACE_STEP_NOT_REPLAYABLE"
     TYPE_VERIFICATION_FAILED = "TYPE_VERIFICATION_FAILED"
+    BACKEND_RPC_TIMEOUT = "BACKEND_RPC_TIMEOUT"
     TIMEOUT = "TIMEOUT"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -42,6 +46,7 @@ _RETRYABLE = {
     ErrorCode.WINDOW_NOT_FOUND,
     ErrorCode.ELEMENT_NOT_FOUND,
     ErrorCode.ELEMENT_REFERENCE_STALE,
+    ErrorCode.BACKEND_RPC_TIMEOUT,
     ErrorCode.TIMEOUT,
 }
 
@@ -195,9 +200,18 @@ class ElementInfo:
     locator_hint: str | None = None
     doc_order_index: int = -1  # internal: position in document-order traversal
     ref_bound: bool = True  # whether a WebElement ref was bound during inspect
+    ref_status: str = "bound"
+    state_source: str = "xml"
 
     def to_dict(self) -> dict:
+        center = None
+        if self.frame is not None:
+            center = {
+                "x": int(self.frame.get("x", 0)) + int(self.frame.get("width", 0)) // 2,
+                "y": int(self.frame.get("y", 0)) + int(self.frame.get("height", 0)) // 2,
+            }
         return {
+            "ref": self.element_id,
             "element_id": self.element_id,
             "role": self.role,
             "name": self.name,
@@ -207,8 +221,12 @@ class ElementInfo:
             "visible": self.visible,
             "focused": self.focused,
             "frame": self.frame,
+            "element_bounds": self.frame,
+            "center": center,
             "locator_hint": self.locator_hint,
             "ref_bound": self.ref_bound,
+            "ref_status": self.ref_status,
+            "state_source": self.state_source,
         }
 
 

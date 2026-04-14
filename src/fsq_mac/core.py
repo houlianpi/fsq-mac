@@ -73,6 +73,18 @@ _SAFETY: dict[str, SafetyLevel] = {
 }
 
 
+def _suggested_next_action_for_error(code: ErrorCode) -> str | None:
+    if code == ErrorCode.ELEMENT_REFERENCE_STALE:
+        return "mac element inspect"
+    if code == ErrorCode.ELEMENT_NOT_ACTIONABLE:
+        return "mac element inspect"
+    if code == ErrorCode.GEOMETRY_UNRELIABLE:
+        return "mac element inspect"
+    if code == ErrorCode.BACKEND_RPC_TIMEOUT:
+        return "Retry the action or refresh with 'mac element inspect'"
+    return None
+
+
 def check_safety(command: str, allow_dangerous: bool) -> Response | None:
     level = _SAFETY.get(command, SafetyLevel.GUARDED)
     if level == SafetyLevel.DANGEROUS and not allow_dangerous:
@@ -309,7 +321,7 @@ class AutomationCore:
                                   suggested_next_action="mac app launch <bundle_id>",
                                   session_id=active, meta=self._meta(t, active))
         return success_response("element.inspect", data={
-            "elements": elements,
+            **self._snapshot_payload(adapter, elements),
             "note": "Element refs (e0, e1, ...) are scoped to this result. A new find or inspect invalidates previous refs.",
         },
                                 session_id=active, meta=self._meta(t, active))
@@ -344,6 +356,52 @@ class AutomationCore:
         "element.type", "element.scroll", "element.drag",
     })
 
+    def _binding_summary(self, elements: list[dict]) -> tuple[str, list[dict]]:
+        warnings = []
+        web_content_elements = [
+            element for element in elements
+            if element.get("role") in {"WebArea", "Browser", "Link"}
+        ]
+        if web_content_elements:
+            warnings.append({
+                "code": "WEB_CONTENT_BEST_EFFORT",
+                "count": len(web_content_elements),
+                "message": "Web content is exposed through accessibility and remains best effort under the current backend.",
+            })
+        if not elements:
+            return "heuristic", warnings
+        unbound_elements = [
+            element for element in elements
+            if element.get("ref_status") == "unbound" or element.get("ref_bound") is False
+        ]
+        if not unbound_elements:
+            return "heuristic", warnings
+        warnings.append({
+            "code": "UNBOUND_ELEMENTS_PRESENT",
+            "count": len(unbound_elements),
+            "message": "Some inspected elements are present in the snapshot but do not have actionable refs.",
+        })
+        if len(unbound_elements) == len(elements):
+            return "unbound_only", warnings
+        return "heuristic", warnings
+
+    def _snapshot_payload(self, adapter, elements: list[dict]) -> dict:
+        raw_generation = getattr(adapter, "_snapshot_generation", 0)
+        generation = raw_generation if isinstance(raw_generation, int) else 0
+        binding_mode, binding_warnings = self._binding_summary(elements)
+        backend = getattr(adapter, "name", None)
+        if not isinstance(backend, str) or not backend:
+            backend = "appium_mac2"
+        return {
+            "snapshot_id": f"snap_{generation}",
+            "generation": generation,
+            "backend": backend,
+            "binding_mode": binding_mode,
+            "binding_warnings": binding_warnings,
+            "elements": elements,
+            "count": len(elements),
+        }
+
     def _best_effort_snapshot(self, adapter, data: dict) -> dict:
         """Attempt adapter.inspect() and attach results to data.
 
@@ -352,10 +410,7 @@ class AutomationCore:
         try:
             elements = adapter.inspect()
             data["snapshot_status"] = "attached"
-            data["snapshot"] = {
-                "elements": elements,
-                "count": len(elements),
-            }
+            data["snapshot"] = self._snapshot_payload(adapter, elements)
         except Exception as exc:
             logger.debug("_best_effort_snapshot failed: %s", exc)
             data["snapshot_status"] = "failed_best_effort"
@@ -372,7 +427,7 @@ class AutomationCore:
         if err_code:
             ref = query.ref or query.to_dict()
             msg = result.get("detail", f"Action failed on '{ref}'")
-            suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
+            suggested = _suggested_next_action_for_error(err_code)
             details = result.get("details")
             return error_response(command, err_code, msg, session_id=active,
                                   meta=self._meta(t, active), suggested_next_action=suggested,
@@ -416,13 +471,16 @@ class AutomationCore:
         result = adapter.type_text(query, text, strategy=strategy, input_method=input_method)
         err_code = result.get("error_code")
         if err_code:
-            suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
+            suggested = _suggested_next_action_for_error(err_code)
             details = result.get("details")
             return error_response("element.type", err_code, result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active),
                                   suggested_next_action=suggested, details=details)
         data = {}
-        for key in ("verified", "typed_value", "expected", "element_bounds", "center"):
+        for key in (
+            "verified", "typed_value", "expected", "element_bounds", "center",
+            "resolved_element", "actionability_used",
+        ):
             if key in result:
                 data[key] = result[key]
         # verified=False → typing succeeded but value doesn't match
@@ -462,12 +520,15 @@ class AutomationCore:
         result = adapter.drag(self._query_from_args(ref=source), self._query_from_args(ref=target), strategy=strategy)
         err_code = result.get("error_code")
         if err_code:
-            suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
+            suggested = _suggested_next_action_for_error(err_code)
             details = result.get("details")
             return error_response("element.drag", err_code, result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active),
                                   suggested_next_action=suggested, details=details)
         data = {}
+        for key in ("resolved_element", "resolved_target", "actionability_used"):
+            if key in result:
+                data[key] = result[key]
         self._best_effort_snapshot(adapter, data)
         return success_response("element.drag", data=data, session_id=active, meta=self._meta(t, active))
 

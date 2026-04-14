@@ -184,3 +184,19 @@ def test_element_info_ref_bound_false():
     el = ElementInfo(element_id="e0", role="Button", ref_bound=False)
     d = el.to_dict()
     assert d["ref_bound"] is False
+
+
+def test_element_info_contract_fields_in_to_dict():
+    el = ElementInfo(
+        element_id="e0",
+        role="Button",
+        frame={"x": 10, "y": 20, "width": 80, "height": 40},
+        ref_status="bound",
+        state_source="xml",
+    )
+    d = el.to_dict()
+    assert d["ref"] == "e0"
+    assert d["element_bounds"] == {"x": 10, "y": 20, "width": 80, "height": 40}
+    assert d["center"] == {"x": 50, "y": 40}
+    assert d["ref_status"] == "bound"
+    assert d["state_source"] == "xml"

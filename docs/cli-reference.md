@@ -51,6 +51,16 @@ Recommended consumer interpretation:
 - use `error.retryable` as the primary retry hint
 - use `suggested_next_action` and `doctor_hint` as operator guidance, not as required fields
 
+For element commands, `error.details` may also include:
+
+- `state_source`
+- `checks`
+- `element_bounds`
+- `recovery_hint`
+- `web_best_effort`
+
+`web_best_effort=true` means the current backend is operating on browser web content through accessibility and the failure should be treated as best-effort backend behavior, not as a DOM-native guarantee regression.
+
 ## session
 
 | Command | Description | Safety |
@@ -102,6 +112,26 @@ mac window focus 0
 
 All element commands accept locator flags: `--id`, `--role`, `--name`, `--label`, `--xpath`
 
+`mac element inspect` returns a structured snapshot, not only a flat debug listing. Important top-level fields include:
+
+- `snapshot_id`
+- `generation`
+- `backend`
+- `binding_mode`
+- `binding_warnings`
+- `elements`
+- `count`
+
+Current `binding_mode` meanings:
+
+- `heuristic` — refs were bound through the current accessibility-based backend heuristic
+- `unbound_only` — the snapshot contains visible elements but no actionable refs were bound
+
+Current `binding_warnings` may include:
+
+- `UNBOUND_ELEMENTS_PRESENT`
+- `WEB_CONTENT_BEST_EFFORT`
+
 | Command | Description | Safety |
 |---------|-------------|--------|
 | `mac element inspect` | Inspect all visible elements | SAFE |
@@ -123,6 +153,81 @@ mac element type "hello world" --role AXTextField --input-method keys
 mac element scroll down --role AXScrollArea
 mac element right-click --name "File"
 ```
+
+Example inspect response shape:
+
+```json
+{
+  "ok": true,
+  "command": "element.inspect",
+  "data": {
+    "snapshot_id": "snap_12",
+    "generation": 12,
+    "backend": "appium_mac2",
+    "binding_mode": "heuristic",
+    "binding_warnings": [
+      {
+        "code": "WEB_CONTENT_BEST_EFFORT",
+        "count": 1,
+        "message": "Web content is exposed through accessibility and remains best effort under the current backend."
+      }
+    ],
+    "elements": [
+      {
+        "ref": "e0",
+        "role": "WebArea",
+        "name": "Docs",
+        "element_bounds": {"x": 0, "y": 0, "width": 1280, "height": 720},
+        "center": {"x": 640, "y": 360},
+        "ref_status": "bound",
+        "state_source": "xml"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+Example element action success shape:
+
+```json
+{
+  "ok": true,
+  "command": "element.click",
+  "data": {
+    "resolved_element": {
+      "ref": "e0",
+      "role": "AXButton",
+      "name": "OK",
+      "ref_status": "bound",
+      "state_source": "xml"
+    },
+    "actionability_used": {
+      "actionable": true,
+      "checks": {
+        "has_ref": true,
+        "has_geometry": true,
+        "visible": true,
+        "enabled": true
+      },
+      "evidence_source": "xml"
+    },
+    "element_bounds": {"x": 10, "y": 20, "width": 80, "height": 40},
+    "center": {"x": 50, "y": 40},
+    "snapshot_status": "attached"
+  }
+}
+```
+
+Successful mutating element actions may return additional machine-consumable fields:
+
+- `resolved_element`
+- `resolved_target`
+- `actionability_used`
+- `element_bounds`
+- `center`
+- `snapshot_status`
+- `snapshot`
 
 Text-writing commands support `--input-method paste|keys|auto`.
 

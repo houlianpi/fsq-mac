@@ -6,7 +6,13 @@
 
 Agent-first macOS automation CLI for native app automation.
 
-`fsq-mac` is a Python command-line tool for automating native macOS applications through Appium Mac2. It is designed for agent and tool use: commands return structured output, sessions are managed explicitly, and higher-level workflows such as trace, replay, code generation, and plugins are built in.
+`fsq-mac` is a Python command-line tool for automating macOS applications through Appium Mac2. It is designed for agent and tool use: commands return structured output, sessions are managed explicitly, and higher-level workflows such as trace, replay, code generation, and plugins are built in.
+
+Product position today:
+
+- native app automation first
+- browser chrome and simple web content are supported on a best-effort basis through accessibility
+- complex web DOM semantics are out of scope for the current backend
 
 ## Why fsq-mac
 
@@ -51,13 +57,26 @@ mac app current --pretty
 mac window current --pretty
 ```
 
+Main workflow:
+
+```bash
+mac element inspect --pretty
+mac element click --role AXButton --name OK
+mac element type "hello world" --role AXTextField
+mac capture screenshot
+```
+
+`element inspect` now returns a structured snapshot contract with fields such as `snapshot_id`, `generation`, `backend`, `binding_mode`, `binding_warnings`, and `elements`.
+
+For native app flows, `binding_warnings` is often empty. For browser and web-content flows, warnings may include `WEB_CONTENT_BEST_EFFORT`, which means the current backend is using accessibility rather than DOM-native guarantees.
+
 ## Examples
 
 Start a session and inspect the current UI tree:
 
 ```bash
 mac session start
-mac element inspect
+mac element inspect --pretty
 mac capture ui-tree
 ```
 
@@ -76,6 +95,15 @@ mac trace start artifacts/traces/demo
 mac trace stop
 mac trace replay artifacts/traces/demo
 ```
+
+Inspect and action responses are machine-consumable. Successful element actions can include:
+
+- `resolved_element`
+- `actionability_used`
+- `element_bounds`
+- `center`
+- `snapshot_status`
+- best-effort `snapshot`
 
 Generate shell commands from a trace:
 

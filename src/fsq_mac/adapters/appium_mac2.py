@@ -148,6 +148,95 @@ def _frame_to_tuple(frame: dict[str, int] | None) -> tuple[int, int, int, int] |
         return None
 
 
+def _resolved_element_payload(ref: str | LocatorQuery, element, frame: tuple[int, int, int, int],
+                             cached_state: tuple[dict | None, bool, bool] | None) -> dict:
+    ref_id = ref if isinstance(ref, str) else ref.ref
+    role = getattr(element, "tag_name", "").replace("XCUIElementType", "") or None
+    name = None
+    try:
+        name = element.get_attribute("name") or element.get_attribute("label") or element.get_attribute("value") or None
+    except Exception:
+        pass
+    ref_status = "bound" if ref_id else "heuristic"
+    state_source = "xml" if cached_state is not None else "rpc"
+    x, y, width, height = frame
+    return {
+        "ref": ref_id,
+        "role": role,
+        "name": name,
+        "ref_status": ref_status,
+        "state_source": state_source,
+        "element_bounds": {"x": x, "y": y, "width": width, "height": height},
+        "center": {"x": x + width // 2, "y": y + height // 2},
+    }
+
+
+def _actionability_payload(cached_state: tuple[dict | None, bool, bool] | None) -> dict:
+    if cached_state is not None:
+        frame_dict, visible, enabled = cached_state
+        return {
+            "actionable": bool(frame_dict and visible and enabled),
+            "checks": {
+                "has_ref": True,
+                "has_geometry": bool(frame_dict),
+                "visible": visible,
+                "enabled": enabled,
+            },
+            "evidence_source": "xml",
+        }
+    return {
+        "actionable": True,
+        "checks": {
+            "has_ref": True,
+            "has_geometry": True,
+            "visible": True,
+            "enabled": True,
+        },
+        "evidence_source": "rpc",
+    }
+
+
+def _failure_details(
+    *,
+    ref: str | None = None,
+    state_source: str,
+    checks: dict[str, Any] | None = None,
+    element_bounds: dict[str, int] | None = None,
+    recovery_hint: str,
+) -> dict:
+    details = {
+        "state_source": state_source,
+        "checks": checks or {},
+        "recovery_hint": recovery_hint,
+    }
+    if ref is not None:
+        details["ref"] = ref
+    if element_bounds is not None:
+        details["element_bounds"] = element_bounds
+    return details
+
+
+def _is_web_content_element(element) -> bool:
+    try:
+        role = element.get_attribute("role") or ""
+        if role in {"AXWebArea", "AXLink", "AXBrowser"}:
+            return True
+    except Exception:
+        pass
+    try:
+        tag_name = getattr(element, "tag_name", "")
+        return tag_name in {"XCUIElementTypeWebArea", "XCUIElementTypeBrowser", "XCUIElementTypeLink"}
+    except Exception:
+        return False
+
+
+def _mark_web_best_effort(details: dict, element) -> dict:
+    if _is_web_content_element(element):
+        details = dict(details)
+        details["web_best_effort"] = True
+    return details
+
+
 def parse_ui_tree(page_source: str, max_elements: int = 200) -> list[ElementInfo]:
     """Parse Appium XML page source into a list of ElementInfo."""
     elements: list[ElementInfo] = []
@@ -323,6 +412,7 @@ class AppiumMac2Adapter:
         self._driver = None
         # Snapshot: maps element_id -> WebElement for the current UI context
         self._element_refs: dict[str, Any] = {}
+        self._snapshot_element_ids: set[str] = set()
         self._snapshot_generation: int = 0
         # Configurable delays
         self._delay_post_action: float = config.get("delay_post_action", 0)
@@ -630,6 +720,7 @@ class AppiumMac2Adapter:
 
     def _invalidate_refs(self) -> None:
         self._snapshot_generation += 1
+        self._snapshot_element_ids = set()
 
     def _store_ref(self, eid: str, web_element, name: str | None = None,
                    frame: dict | None = None, visible: bool = True,
@@ -705,6 +796,20 @@ class AppiumMac2Adapter:
             },
         }
 
+    def _resolve_error_result(self, err: ErrorCode | dict | None, ref: str | LocatorQuery, detail: str | None = None) -> dict | None:
+        if not err:
+            return None
+        if isinstance(err, dict):
+            result = dict(err)
+        else:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
+            result = {"error_code": err}
+        if detail is not None and "detail" not in result:
+            result["detail"] = detail
+        return result
+
     # -- resolve ref: element_id or locator ---------------------------------
 
     def _coerce_query(self, ref: str | LocatorQuery) -> LocatorQuery:
@@ -765,8 +870,16 @@ class AppiumMac2Adapter:
                 def _find_by_query():
                     return self._driver.find_elements(*locator)
                 matches = self._run_with_timeout(_find_by_query)
-            except TimeoutError:
-                return None, ErrorCode.TIMEOUT
+            except TimeoutError as exc:
+                return None, {
+                    "error_code": ErrorCode.BACKEND_RPC_TIMEOUT,
+                    "detail": f"Timed out while resolving locator query: {exc}",
+                    "details": _failure_details(
+                        state_source="rpc",
+                        checks={"rpc_probe": "timed_out"},
+                        recovery_hint="Retry the action or refresh the UI snapshot if the backend remains slow.",
+                    ),
+                }
             except Exception:
                 matches = []
             if not matches:
@@ -834,11 +947,21 @@ class AppiumMac2Adapter:
                 logger.debug("_wait_for_actionable: using cached XML state (visible=%s, enabled=%s)", visible, enabled)
                 return None
             # Cached state says not actionable — report immediately
-            checks = {"visible": visible, "enabled": enabled}
+            checks = {
+                "has_geometry": bool(frame_dict),
+                "visible": visible,
+                "enabled": enabled,
+            }
             waiting_on = [name for name, ok in checks.items() if not ok]
             return {
-                "error_code": ErrorCode.TIMEOUT,
+                "error_code": ErrorCode.ELEMENT_NOT_ACTIONABLE,
                 "detail": f"Element not actionable (from cached state); waiting on {', '.join(waiting_on)}",
+                "details": _mark_web_best_effort(_failure_details(
+                    state_source="xml",
+                    checks=checks,
+                    element_bounds=frame_dict,
+                    recovery_hint="Re-run inspect and wait for the element to become visible and enabled before retrying.",
+                ), element),
             }
 
         # Slow path: live probe via Appium RPC (for elements without cached state)
@@ -849,8 +972,13 @@ class AppiumMac2Adapter:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return {
-                    "error_code": ErrorCode.TIMEOUT,
+                    "error_code": ErrorCode.ELEMENT_NOT_ACTIONABLE,
                     "detail": f"Element did not become actionable; waiting on {', '.join(waiting_on)}",
+                    "details": _mark_web_best_effort(_failure_details(
+                        state_source="rpc",
+                        checks={name: False for name in waiting_on},
+                        recovery_hint="Re-run inspect and wait for the element to become visible and enabled before retrying.",
+                    ), element),
                 }
             try:
                 frame, visible, enabled = self._run_with_timeout(
@@ -859,8 +987,13 @@ class AppiumMac2Adapter:
                 )
             except TimeoutError as exc:
                 return {
-                    "error_code": ErrorCode.TIMEOUT,
+                    "error_code": ErrorCode.BACKEND_RPC_TIMEOUT,
                     "detail": f"Timed out while probing element state: {exc}",
+                    "details": _failure_details(
+                        state_source="rpc",
+                        checks={"rpc_probe": "timed_out"},
+                        recovery_hint="Retry the action or refresh the UI snapshot if the backend remains slow.",
+                    ),
                 }
             except Exception as exc:
                 return {
@@ -887,6 +1020,8 @@ class AppiumMac2Adapter:
             return self._resolve_query(ref, strategy, timeout)
         # Try element_id first
         if ref.startswith("e") and ref[1:].isdigit():
+            if ref in self._snapshot_element_ids and ref not in self._element_refs:
+                return None, ErrorCode.ELEMENT_UNBOUND
             el, err = self._get_ref(ref)
             if el is not None:
                 return el, None
@@ -1050,6 +1185,7 @@ class AppiumMac2Adapter:
         self._invalidate_refs()
         source = self._get_page_source()
         elements = parse_ui_tree(source, max_elements=max_elements)
+        self._snapshot_element_ids = {info.element_id for info in elements}
         # Bind refs by document-order index
         try:
             all_web_els = self._run_with_timeout(
@@ -1066,8 +1202,10 @@ class AppiumMac2Adapter:
                                     frame=info.frame, visible=info.visible,
                                     enabled=info.enabled, role=info.role)
                     info.ref_bound = True
+                    info.ref_status = "bound"
                 else:
                     info.ref_bound = False
+                    info.ref_status = "unbound"
                     logger.debug(
                         "inspect ref-binding: %s doc_order_index=%d out of range (max=%d)",
                         info.element_id, info.doc_order_index, len(all_web_els),
@@ -1076,9 +1214,11 @@ class AppiumMac2Adapter:
             logger.warning("Timed out binding inspect element refs; returning parsed tree without refs")
             for info in elements:
                 info.ref_bound = False
+                info.ref_status = "unbound"
         except Exception:
             for info in elements:
                 info.ref_bound = False
+                info.ref_status = "unbound"
         return [e.to_dict() for e in elements]
 
     def find(self, value: str, strategy: str = "accessibility_id", timeout: int = 5) -> tuple[str, list[dict]]:
@@ -1094,6 +1234,7 @@ class AppiumMac2Adapter:
             return "no_match", []
 
         self._snapshot_generation += 1
+        self._snapshot_element_ids = set()
         result = []
         for i, wel in enumerate(web_els):
             eid = f"e{i}"
@@ -1105,6 +1246,7 @@ class AppiumMac2Adapter:
             except Exception:
                 pass
             self._store_ref(eid, wel, name=el_name or None)
+            self._snapshot_element_ids.add(eid)
             result.append(ElementInfo(
                 element_id=eid,
                 role=getattr(wel, "tag_name", "").replace("XCUIElementType", ""),
@@ -1121,10 +1263,7 @@ class AppiumMac2Adapter:
     def click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
-            eid = self._ref_eid(ref)
-            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err}
+            return self._resolve_error_result(err, ref)
         # Look up cached XML state for element refs (e0, e1, ...)
         eid = ref if isinstance(ref, str) else (ref.ref if isinstance(ref, LocatorQuery) else None)
         cached_state = self._get_ref_cached_state(eid) if eid else None
@@ -1163,7 +1302,11 @@ class AppiumMac2Adapter:
             time.sleep(self._delay_post_action)
             self._invalidate_refs()
             self._tree_cache = None
-            return _geometry_payload(fallback_frame)
+            return {
+                **_geometry_payload(fallback_frame),
+                "resolved_element": _resolved_element_payload(ref, el, fallback_frame, cached_state),
+                "actionability_used": _actionability_payload(cached_state),
+            }
 
         try:
             self._run_with_timeout(lambda: el.click())
@@ -1175,17 +1318,46 @@ class AppiumMac2Adapter:
             time.sleep(self._delay_post_action)
             self._invalidate_refs()
             self._tree_cache = None
-            return _geometry_payload(fallback_frame)
+            return {
+                **_geometry_payload(fallback_frame),
+                "resolved_element": _resolved_element_payload(ref, el, fallback_frame, cached_state),
+                "actionability_used": _actionability_payload(cached_state),
+            }
 
         try:
             x, y, width, height = fallback_frame
             fallback = self.input_click_at(x + width / 2, y + height / 2)
             if fallback.get("error_code"):
+                if width <= 1 or height <= 1:
+                    detail = fallback.get("detail") or str(driver_click_error)
+                    return {
+                        "error_code": ErrorCode.GEOMETRY_UNRELIABLE,
+                        "detail": detail,
+                        "details": _mark_web_best_effort(_failure_details(
+                            ref=eid,
+                            state_source="xml" if cached_state is not None else "rpc",
+                            checks={"has_geometry": False},
+                            element_bounds=_geometry_payload(fallback_frame)["element_bounds"],
+                            recovery_hint="Refresh the snapshot and avoid coordinate fallback for this element until stable bounds are available.",
+                        ), el),
+                    }
                 if isinstance(driver_click_error, TimeoutError):
                     return {"error_code": ErrorCode.TIMEOUT, "detail": str(driver_click_error)}
                 detail = fallback.get("detail") or str(driver_click_error)
                 return {"error_code": fallback["error_code"], "detail": detail}
         except Exception as exc:
+            if width <= 1 or height <= 1:
+                return {
+                    "error_code": ErrorCode.GEOMETRY_UNRELIABLE,
+                    "detail": str(exc),
+                    "details": _mark_web_best_effort(_failure_details(
+                        ref=eid,
+                        state_source="xml" if cached_state is not None else "rpc",
+                        checks={"has_geometry": False},
+                        element_bounds=_geometry_payload(fallback_frame)["element_bounds"],
+                        recovery_hint="Refresh the snapshot and avoid coordinate fallback for this element until stable bounds are available.",
+                    ), el),
+                }
             if isinstance(driver_click_error, TimeoutError):
                 return {"error_code": ErrorCode.TIMEOUT, "detail": str(driver_click_error)}
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
@@ -1198,15 +1370,16 @@ class AppiumMac2Adapter:
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None
-        return _geometry_payload(fallback_frame)
+        return {
+            **_geometry_payload(fallback_frame),
+            "resolved_element": _resolved_element_payload(ref, el, fallback_frame, cached_state),
+            "actionability_used": _actionability_payload(cached_state),
+        }
 
     def right_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
-            eid = self._ref_eid(ref)
-            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err}
+            return self._resolve_error_result(err, ref)
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
         if wait_error:
@@ -1223,15 +1396,16 @@ class AppiumMac2Adapter:
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None
-        return _geometry_payload(frame)
+        return {
+            **_geometry_payload(frame),
+            "resolved_element": _resolved_element_payload(ref, el, frame, cached_state),
+            "actionability_used": _actionability_payload(cached_state),
+        }
 
     def double_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
-            eid = self._ref_eid(ref)
-            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err}
+            return self._resolve_error_result(err, ref)
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
         if wait_error:
@@ -1254,15 +1428,16 @@ class AppiumMac2Adapter:
         time.sleep(self._delay_post_action)
         self._invalidate_refs()
         self._tree_cache = None
-        return _geometry_payload(frame)
+        return {
+            **_geometry_payload(frame),
+            "resolved_element": _resolved_element_payload(ref, el, frame, cached_state),
+            "actionability_used": _actionability_payload(cached_state),
+        }
 
     def hover(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
-            eid = self._ref_eid(ref)
-            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err}
+            return self._resolve_error_result(err, ref)
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, cached_state=cached_state)
         if wait_error:
@@ -1278,16 +1453,17 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.TIMEOUT, "detail": str(exc)}
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
-        return _geometry_payload(frame)
+        return {
+            **_geometry_payload(frame),
+            "resolved_element": _resolved_element_payload(ref, el, frame, cached_state),
+            "actionability_used": _actionability_payload(cached_state),
+        }
 
     def type_text(self, ref: str | LocatorQuery, text: str, strategy: str = "accessibility_id",
                   input_method: str = "paste") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
-            eid = self._ref_eid(ref)
-            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err}
+            return self._resolve_error_result(err, ref)
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, cached_state=cached_state)
         if wait_error:
@@ -1310,7 +1486,12 @@ class AppiumMac2Adapter:
         except Exception as exc:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         # Verify the typed value
-        result = {"expected": text, **_geometry_payload(frame)}
+        result = {
+            "expected": text,
+            **_geometry_payload(frame),
+            "resolved_element": _resolved_element_payload(ref, el, frame, cached_state),
+            "actionability_used": _actionability_payload(cached_state),
+        }
         try:
             actual = el.get_attribute("value")
             if actual is None:
@@ -1326,10 +1507,7 @@ class AppiumMac2Adapter:
     def scroll(self, ref: str | LocatorQuery, direction: str = "down", strategy: str = "accessibility_id") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
-            eid = self._ref_eid(ref)
-            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err}
+            return self._resolve_error_result(err, ref)
         try:
             self._driver.execute_script("mobile: scroll", {"direction": direction, "element": el})
         except Exception as exc:
@@ -1342,15 +1520,9 @@ class AppiumMac2Adapter:
         src, err1 = self._resolve_ref(source_ref, strategy)
         tgt, err2 = self._resolve_ref(target_ref, strategy)
         if err1:
-            eid = self._ref_eid(source_ref)
-            if err1 == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err1, "detail": f"source: {source_ref}"}
+            return self._resolve_error_result(err1, source_ref, detail=f"source: {source_ref}")
         if err2:
-            eid = self._ref_eid(target_ref)
-            if err2 == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
-                return self._stale_ref_error(eid)
-            return {"error_code": err2, "detail": f"target: {target_ref}"}
+            return self._resolve_error_result(err2, target_ref, detail=f"target: {target_ref}")
         src_cached = self._get_ref_cached_state(self._ref_eid(source_ref))
         tgt_cached = self._get_ref_cached_state(self._ref_eid(target_ref))
         wait_error = self._wait_for_actionable(src, cached_state=src_cached)
@@ -1369,7 +1541,20 @@ class AppiumMac2Adapter:
             return {"error_code": ErrorCode.ELEMENT_NOT_FOUND, "detail": str(exc)}
         self._invalidate_refs()
         self._tree_cache = None
-        return {}
+        src_frame = _frame_to_tuple(src_cached[0]) if src_cached else self._element_frame(src)
+        tgt_frame = _frame_to_tuple(tgt_cached[0]) if tgt_cached else self._element_frame(tgt)
+        return {
+            "resolved_element": _resolved_element_payload(source_ref, src, src_frame, src_cached),
+            "resolved_target": _resolved_element_payload(target_ref, tgt, tgt_frame, tgt_cached),
+            "actionability_used": {
+                "actionable": True,
+                "checks": {
+                    "source_actionable": True,
+                    "target_actionable": True,
+                },
+                "evidence_source": "xml" if src_cached is not None or tgt_cached is not None else "rpc",
+            },
+        }
 
     # -- input operations ---------------------------------------------------
 
@@ -1475,7 +1660,7 @@ class AppiumMac2Adapter:
     def assert_visible(self, query: LocatorQuery) -> dict:
         el, err = self._resolve_ref(query)
         if err:
-            return {"error_code": err}
+            return self._resolve_error_result(err, query)
         if self._element_visible(el):
             return {}
         return {"error_code": ErrorCode.ASSERTION_FAILED, "detail": "element is not visible"}
@@ -1483,7 +1668,7 @@ class AppiumMac2Adapter:
     def assert_enabled(self, query: LocatorQuery) -> dict:
         el, err = self._resolve_ref(query)
         if err:
-            return {"error_code": err}
+            return self._resolve_error_result(err, query)
         if self._element_enabled(el):
             return {}
         return {"error_code": ErrorCode.ASSERTION_FAILED, "detail": "element is not enabled"}
@@ -1491,7 +1676,7 @@ class AppiumMac2Adapter:
     def assert_text(self, query: LocatorQuery, expected: str) -> dict:
         el, err = self._resolve_ref(query)
         if err:
-            return {"error_code": err}
+            return self._resolve_error_result(err, query)
         actual = getattr(el, "text", None)
         if actual is None:
             actual = self._element_name(el)
@@ -1500,7 +1685,7 @@ class AppiumMac2Adapter:
     def assert_value(self, query: LocatorQuery, expected: str) -> dict:
         el, err = self._resolve_ref(query)
         if err:
-            return {"error_code": err}
+            return self._resolve_error_result(err, query)
         try:
             actual = el.get_attribute("value") or ""
         except Exception:
@@ -1558,7 +1743,7 @@ class AppiumMac2Adapter:
     def screenshot_element(self, ref: str, path: str, strategy: str = "accessibility_id") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
-            return {"error_code": err, "detail": f"Element '{ref}' not found"}
+            return self._resolve_error_result(err, ref, detail=f"Element '{ref}' not found")
         try:
             png = el.screenshot_as_png
             with open(path, "wb") as f:

@@ -42,8 +42,24 @@ class TestAutoSnapshot:
         resp = core.element_click("e0")
         assert resp.ok is True
         assert resp.data["snapshot_status"] == "attached"
+        assert resp.data["snapshot"]["snapshot_id"].startswith("snap_")
+        assert isinstance(resp.data["snapshot"]["generation"], int)
+        assert resp.data["snapshot"]["backend"] == "appium_mac2"
+        assert resp.data["snapshot"]["binding_mode"] == "heuristic"
+        assert resp.data["snapshot"]["binding_warnings"] == []
         assert resp.data["snapshot"]["elements"][0]["name"] == "Home"
         assert resp.data["snapshot"]["count"] == 1
+
+    def test_click_snapshot_marks_web_content_as_best_effort(self, core_with_session):
+        core, adapter = core_with_session
+        adapter.click.return_value = {"x": 100, "y": 200}
+        adapter.inspect.return_value = [
+            {"element_id": "e0", "role": "WebArea", "name": "Page", "ref_bound": True, "ref_status": "bound"}
+        ]
+        resp = core.element_click("e0")
+        assert resp.ok is True
+        warnings = {warning["code"]: warning for warning in resp.data["snapshot"]["binding_warnings"]}
+        assert warnings["WEB_CONTENT_BEST_EFFORT"]["count"] == 1
 
     def test_click_snapshot_failed_best_effort(self, core_with_session):
         core, adapter = core_with_session
@@ -84,11 +100,15 @@ class TestAutoSnapshot:
     def test_double_click_attaches_snapshot(self, core_with_session):
         core, adapter = core_with_session
         adapter.double_click.return_value = {"x": 10, "y": 20}
-        adapter.inspect.return_value = []
+        adapter.inspect.return_value = [
+            {"element_id": "e0", "role": "Button", "name": "MissingRef", "ref_bound": False, "ref_status": "unbound"}
+        ]
         resp = core.element_double_click("e0")
         assert resp.ok is True
         assert resp.data["snapshot_status"] == "attached"
-        assert resp.data["snapshot"]["count"] == 0
+        assert resp.data["snapshot"]["binding_mode"] == "unbound_only"
+        assert resp.data["snapshot"]["binding_warnings"][0]["code"] == "UNBOUND_ELEMENTS_PRESENT"
+        assert resp.data["snapshot"]["count"] == 1
 
     def test_scroll_attaches_snapshot(self, core_with_session):
         core, adapter = core_with_session
