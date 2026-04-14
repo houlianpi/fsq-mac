@@ -334,6 +334,29 @@ class AutomationCore:
         },
                                 session_id=active, meta=self._meta(t, active))
 
+    # -- best-effort post-action snapshot ------------------------------------
+
+    _MUTATING_COMMANDS = frozenset({
+        "element.click", "element.right-click", "element.double-click",
+        "element.type", "element.scroll", "element.drag",
+    })
+
+    def _best_effort_snapshot(self, adapter, data: dict) -> dict:
+        """Attempt adapter.inspect() and attach results to data.
+
+        Always adds snapshot_status. Never raises.
+        """
+        try:
+            elements = adapter.inspect()
+            data["snapshot_status"] = "attached"
+            data["snapshot"] = {
+                "elements": elements,
+                "count": len(elements),
+            }
+        except Exception:
+            data["snapshot_status"] = "failed_best_effort"
+        return data
+
     def _element_action(self, command: str, query: LocatorQuery, action_fn, strategy: str,
                         sid: str | None = None, **extra) -> Response:
         t = time.time()
@@ -350,7 +373,10 @@ class AutomationCore:
             return error_response(command, err_code, msg, session_id=active,
                                   meta=self._meta(t, active), suggested_next_action=suggested,
                                   details=details)
-        return success_response(command, data=result or {}, session_id=active, meta=self._meta(t, active))
+        data = result or {}
+        if command in self._MUTATING_COMMANDS:
+            self._best_effort_snapshot(adapter, data)
+        return success_response(command, data=data, session_id=active, meta=self._meta(t, active))
 
     def element_click(self, ref: str | None = None, strategy: str = "accessibility_id", sid: str | None = None,
                       **locator) -> Response:
@@ -399,7 +425,10 @@ class AutomationCore:
             return error_response("element.type", ErrorCode.TYPE_VERIFICATION_FAILED, msg,
                                   session_id=active, meta=self._meta(t, active),
                                   details=data)
-        return success_response("element.type", data=data or None,
+        if not data:
+            data = {}
+        self._best_effort_snapshot(adapter, data)
+        return success_response("element.type", data=data,
                                 session_id=active, meta=self._meta(t, active))
 
     def element_scroll(self, ref: str | None, direction: str = "down", strategy: str = "accessibility_id",
@@ -428,7 +457,9 @@ class AutomationCore:
         if err_code:
             return error_response("element.drag", err_code, result.get("detail", ""),
                                   session_id=active, meta=self._meta(t, active))
-        return success_response("element.drag", session_id=active, meta=self._meta(t, active))
+        data = {}
+        self._best_effort_snapshot(adapter, data)
+        return success_response("element.drag", data=data, session_id=active, meta=self._meta(t, active))
 
     # -- input --------------------------------------------------------------
 
