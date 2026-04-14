@@ -1032,64 +1032,26 @@ class AppiumMac2Adapter:
                 "inspect ref-binding: %d parsed elements, %d XPath elements",
                 len(elements), len(all_web_els),
             )
-            mismatches = []
-            detail_lines = []
-            # Only verify alignment for a sample (first 10 + last 3) to avoid slow RPC
-            sample_indices = set(range(min(10, len(elements))))
-            sample_indices.update(range(max(0, len(elements) - 3), len(elements)))
-            for bind_idx, info in enumerate(elements):
+            for info in elements:
                 if 0 <= info.doc_order_index < len(all_web_els):
                     wel = all_web_els[info.doc_order_index]
                     self._store_ref(info.element_id, wel, name=info.name,
                                     frame=info.frame, visible=info.visible,
                                     enabled=info.enabled)
-                    # Verify alignment on sampled elements only
-                    if bind_idx in sample_indices:
-                        try:
-                            live_name = wel.get_attribute("name") or ""
-                            live_tag = getattr(wel, "tag_name", "").replace("XCUIElementType", "")
-                            xml_name = info.name or ""
-                            xml_role = info.role or ""
-                            matched = (live_tag == xml_role and live_name == xml_name)
-                            if not matched:
-                                mismatches.append(
-                                    f"{info.element_id}: XML({xml_role}/{xml_name}) "
-                                    f"!= WebEl({live_tag}/{live_name}) "
-                                    f"[doc_idx={info.doc_order_index}]"
-                                )
-                            detail_lines.append(
-                                f"{info.element_id}[doc_idx={info.doc_order_index}]: "
-                                f"XML({xml_role}/{xml_name}) -> "
-                                f"WebEl({live_tag}/{live_name}) "
-                                f"{'OK' if matched else 'MISMATCH'}"
-                            )
-                        except Exception as exc:
-                            detail_lines.append(
-                                f"{info.element_id}[doc_idx={info.doc_order_index}]: "
-                                f"XML({info.role}/{info.name}) -> "
-                                f"WebEl(ERROR: {exc})"
-                            )
+                    info.ref_bound = True
                 else:
+                    info.ref_bound = False
                     logger.debug(
                         "inspect ref-binding: %s doc_order_index=%d out of range (max=%d)",
                         info.element_id, info.doc_order_index, len(all_web_els),
                     )
-            if detail_lines:
-                logger.debug(
-                    "inspect ref-binding detail (sampled %d):\n  %s",
-                    len(detail_lines), "\n  ".join(detail_lines),
-                )
-            if mismatches:
-                logger.warning(
-                    "inspect ref-binding: %d MISMATCHES in %d sampled:\n  %s",
-                    len(mismatches), len(detail_lines), "\n  ".join(mismatches[:20]),
-                )
-            else:
-                logger.debug("inspect ref-binding: all %d sampled refs aligned OK", len(detail_lines))
         except TimeoutError:
             logger.warning("Timed out binding inspect element refs; returning parsed tree without refs")
+            for info in elements:
+                info.ref_bound = False
         except Exception:
-            pass
+            for info in elements:
+                info.ref_bound = False
         return [e.to_dict() for e in elements]
 
     def find(self, value: str, strategy: str = "accessibility_id", timeout: int = 5) -> tuple[str, list[dict]]:
