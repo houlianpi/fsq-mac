@@ -346,8 +346,10 @@ class AutomationCore:
             ref = query.ref or query.to_dict()
             msg = result.get("detail", f"Action failed on '{ref}'")
             suggested = "mac element inspect" if err_code == ErrorCode.ELEMENT_REFERENCE_STALE else None
+            details = result.get("details")
             return error_response(command, err_code, msg, session_id=active,
-                                  meta=self._meta(t, active), suggested_next_action=suggested)
+                                  meta=self._meta(t, active), suggested_next_action=suggested,
+                                  details=details)
         return success_response(command, data=result or {}, session_id=active, meta=self._meta(t, active))
 
     def element_click(self, ref: str | None = None, strategy: str = "accessibility_id", sid: str | None = None,

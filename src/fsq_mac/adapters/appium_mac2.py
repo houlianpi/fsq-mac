@@ -678,6 +678,22 @@ class AppiumMac2Adapter:
             return None
         return frame, visible, enabled
 
+    def _stale_ref_error(self, ref: str) -> dict:
+        """Build a rich stale-ref error dict with cached identity."""
+        cached_name = self._get_ref_name(ref)
+        detail = f"Ref '{ref}' is stale; UI changed since the last inspect"
+        if cached_name:
+            detail = f"Ref '{ref}' ({cached_name}) is stale; UI changed since the last inspect"
+        return {
+            "error_code": ErrorCode.ELEMENT_REFERENCE_STALE,
+            "detail": detail,
+            "details": {
+                "ref": ref,
+                "cached_name": cached_name,
+                "reason": "generation_mismatch",
+            },
+        }
+
     # -- resolve ref: element_id or locator ---------------------------------
 
     def _coerce_query(self, ref: str | LocatorQuery) -> LocatorQuery:
@@ -1094,6 +1110,9 @@ class AppiumMac2Adapter:
     def click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err}
         # Look up cached XML state for element refs (e0, e1, ...)
         eid = ref if isinstance(ref, str) else (ref.ref if isinstance(ref, LocatorQuery) else None)
@@ -1173,6 +1192,9 @@ class AppiumMac2Adapter:
     def right_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err}
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
@@ -1195,6 +1217,9 @@ class AppiumMac2Adapter:
     def double_click(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", timeout: int = 5) -> dict:
         el, err = self._resolve_ref(ref, strategy, timeout)
         if err:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err}
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, timeout, cached_state=cached_state)
@@ -1223,6 +1248,9 @@ class AppiumMac2Adapter:
     def hover(self, ref: str | LocatorQuery, strategy: str = "accessibility_id", duration: float = 1.0) -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err}
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, cached_state=cached_state)
@@ -1245,6 +1273,9 @@ class AppiumMac2Adapter:
                   input_method: str = "paste") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err}
         cached_state = self._get_ref_cached_state(self._ref_eid(ref))
         wait_error = self._wait_for_actionable(el, cached_state=cached_state)
@@ -1284,6 +1315,9 @@ class AppiumMac2Adapter:
     def scroll(self, ref: str | LocatorQuery, direction: str = "down", strategy: str = "accessibility_id") -> dict:
         el, err = self._resolve_ref(ref, strategy)
         if err:
+            eid = self._ref_eid(ref)
+            if err == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err}
         try:
             self._driver.execute_script("mobile: scroll", {"direction": direction, "element": el})
@@ -1297,8 +1331,14 @@ class AppiumMac2Adapter:
         src, err1 = self._resolve_ref(source_ref, strategy)
         tgt, err2 = self._resolve_ref(target_ref, strategy)
         if err1:
+            eid = self._ref_eid(source_ref)
+            if err1 == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err1, "detail": f"source: {source_ref}"}
         if err2:
+            eid = self._ref_eid(target_ref)
+            if err2 == ErrorCode.ELEMENT_REFERENCE_STALE and eid:
+                return self._stale_ref_error(eid)
             return {"error_code": err2, "detail": f"target: {target_ref}"}
         src_cached = self._get_ref_cached_state(self._ref_eid(source_ref))
         tgt_cached = self._get_ref_cached_state(self._ref_eid(target_ref))
