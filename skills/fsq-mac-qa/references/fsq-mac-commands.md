@@ -61,7 +61,7 @@ All commands accept an optional `[ref]` (e.g., `e0`) or locator flags.
 | `mac input key <key>` | Press a single key (e.g., `Return`) | GUARDED |
 | `mac input hotkey <combo>` | Press a key combination (e.g., `cmd+c`) | GUARDED |
 | `mac input text <text>` | Type text without an element target | GUARDED |
-| `mac input click-at <x> <y>` | Click at screen coordinates | GUARDED |
+| `mac input click-at <x> <y>` | Click at screen coordinates (**last resort** — see Locator Strategy in SKILL.md) | GUARDED |
 
 ## 7. Assertions
 
@@ -174,3 +174,16 @@ mac capture ui-tree   # review tree for missing accessibility labels or roles
 ## Element Ref Lifecycle
 
 Refs are assigned by `inspect` and `find`. After any mutation command (`click`, `type`, `scroll`, `hover`, `drag`, `right-click`, `double-click`), assume **all** refs are stale. Re-run `mac element inspect` or `mac element find` to get fresh refs before using them again.
+
+## Locator Priority
+
+Always prefer semantic locators over positional methods:
+
+1. `--role` + `--name` (most resilient)
+2. `--id` (if meaningful identifiers exist)
+3. `--label`
+4. Element ref `e0` (current snapshot only)
+5. `--xpath` (fragile)
+6. `click-at` (last resort — accessibility API cannot discover the element)
+
+Never use screenshots to estimate coordinates for `click-at`.

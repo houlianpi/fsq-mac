@@ -7,9 +7,9 @@ Follow each step in order. Do not skip steps.
 
 ## Section 1: Acceptance Mode SOP
 
-Triggered when the user provides a PRD/design spec + target app. All 9 steps (0-8) are mandatory.
+Triggered when the user provides a PRD/design spec + target app. All 9 steps (1-9) are mandatory.
 
-### Step 0 — Write Test Cases
+### Step 1 — Write Test Cases
 
 1. Read the user-provided PRD or design specification in full.
 2. Load `templates/qa-checklist.md`.
@@ -26,36 +26,36 @@ Triggered when the user provides a PRD/design spec + target app. All 9 steps (0-
    - Edge Cases — empty states, boundary values, kill/restart
 4. Each category must have at least one testable item with a clear pass/fail criterion.
 
-**HARD GATE**: No test cases, no testing. Do not proceed until the checklist is saved.
+**HARD GATE**: No test cases, no testing. Do not proceed until the checklist is saved. If the user has no PRD, suggest switching to Explore mode or ask them to provide requirements.
 
-### Step 1 — Environment Check
+### Step 2 — Environment Check
 
 1. Run `mac doctor`.
 2. If any check fails, stop. Show the `suggested_next_action` to the user. Do not proceed.
 
-### Step 2 — Start Session
+### Step 3 — Start Session
 
 1. Run `mac session start`. Capture the session ID for all subsequent commands.
 
-### Step 3 — Launch App
+### Step 4 — Launch App
 
 - **Bundle ID provided**: Run `mac app launch <bundle_id>`.
 - **Source project provided**: Follow the Build Support flow (Section 4).
 
 Then run `mac app current` to confirm the correct app is frontmost.
 
-### Step 4 — Global Screenshots
+### Step 5 — Global Screenshots
 
 1. Create directory `qa-screenshots/<round>/` (e.g., `round-1`).
 2. Run `mac capture screenshot qa-screenshots/<round>/overview.png`.
 3. Navigate to each main screen and capture with descriptive filenames.
 
-### Step 5 — UI Tree Collection
+### Step 6 — UI Tree Collection
 
 1. Run `mac capture ui-tree` for each major screen.
 2. Note element counts to gauge complexity. Use the tree to plan Step 6.
 
-### Step 6 — Item-by-Item Verification
+### Step 7 — Item-by-Item Verification
 
 For each checklist item:
 
@@ -65,13 +65,13 @@ For each checklist item:
 4. Update the report incrementally after each item.
 5. After any mutation command, assume element refs may be stale — re-run `mac element inspect` as needed.
 
-### Step 7 — Screenshot Evidence
+### Step 8 — Screenshot Evidence
 
 1. Ensure every fail item has a screenshot showing the failure state.
 2. For items with a design spec, capture current state for Design vs Actual comparison.
 3. Store evidence in `qa-screenshots/<round>/` with names referencing the checklist item.
 
-### Step 8 — Output Report
+### Step 9 — Output Report
 
 1. Load `templates/acceptance-report.md`. Fill in the summary table:
 
@@ -87,7 +87,7 @@ For each checklist item:
 
 2. Include full checklist results and issue blocks for all fail items.
 3. Determine verdict:
-   - **Accepted**: Pass rate >= 90% AND zero P0 (critical) issues.
+   - **Accepted**: Pass rate >= 90% AND zero P0 (critical) issues (default threshold; user may override).
    - **Not Accepted**: Pass rate < 90% OR any P0 issues.
    - **Conditional**: Pass rate >= 90% but P1 (high) issues remain.
 

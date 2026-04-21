@@ -18,7 +18,6 @@ Run these checks on every invocation. Stop immediately if any fails.
 ```bash
 mac doctor                    # Environment, Appium backend, Accessibility permissions
 mac session start             # Establish automation session
-xcodebuild -version           # Only if user provides a source-code project
 ```
 
 If `mac doctor` fails, show the `suggested_next_action` from the response and guide the user to fix it. Do not proceed until all checks pass.
@@ -27,12 +26,14 @@ If `mac doctor` fails, show the `suggested_next_action` from the response and gu
 
 Determine the mode from user input:
 
-| User provides | Mode |
-|---------------|------|
-| PRD / design spec + target app | **Acceptance** |
-| Trace file path | **Regression** |
-| Only app name or bundle ID | **Explore** |
-| Nothing clear | Ask the user what they want to do |
+| Priority | User provides | Mode |
+|----------|---------------|------|
+| 1 | Trace file path | **Regression** |
+| 2 | PRD / design spec + target app | **Acceptance** |
+| 3 | Only app name or bundle ID | **Explore** |
+| — | Nothing clear | Ask the user what they want to do |
+
+When multiple signals are present, use the highest-priority match.
 
 ## Acceptance Mode
 
@@ -42,15 +43,15 @@ Structured verification against a PRD or design spec. Every step is mandatory.
 
 ### Steps (none may be skipped)
 
-0. **Write test cases** — Read the PRD. Fill `templates/qa-checklist.md` with specific verification items across all 10 categories. **HARD GATE: no test cases, no testing.**
-1. **Environment check** — `mac doctor`
-2. **Start session** — `mac session start`
-3. **Launch app** — `mac app launch <bundle_id>` or build from source (see Build Support below)
-4. **Global screenshots** — Create `qa-screenshots/<round>/`. Screenshot every major screen.
-5. **UI tree collection** — `mac capture ui-tree` for each screen
-6. **Item-by-item verification** — For each checklist item: perform action (`mac element click/type`) then verify (`mac assert text/value/visible/enabled`). Mark ✅/❌ immediately. Take screenshot evidence for every ❌.
-7. **Screenshot comparison** — If design spec available, capture Design vs Actual pairs.
-8. **Output report** — Fill `templates/acceptance-report.md`. Calculate pass rate. Verdict: ✅ Accepted (>= 90% pass, zero P0), ❌ Not Accepted, or ⚠️ Conditional.
+1. **Write test cases** — Read the PRD. Fill `templates/qa-checklist.md` with specific verification items across all 10 categories. **HARD GATE: no test cases, no testing.** If no PRD is available, ask the user to provide one or switch to Explore mode.
+2. **Environment check** — `mac doctor`
+3. **Start session** — `mac session start`
+4. **Launch app** — `mac app launch <bundle_id>` or build from source (see Build Support below)
+5. **Global screenshots** — Create `qa-screenshots/<round>/`. Screenshot every major screen.
+6. **UI tree collection** — `mac capture ui-tree` for each screen
+7. **Item-by-item verification** — For each checklist item: perform action (`mac element click/type`) then verify (`mac assert text/value/visible/enabled`). Mark ✅/❌ immediately. Take screenshot evidence for every ❌.
+8. **Screenshot comparison** — If design spec available, capture Design vs Actual pairs.
+9. **Output report** — Fill `templates/acceptance-report.md`. Calculate pass rate. Verdict: ✅ Accepted (>= 90% pass by default; override with user-specified threshold, zero P0), ❌ Not Accepted, or ⚠️ Conditional.
 
 ## Explore Mode
 
@@ -76,7 +77,7 @@ Autonomous issue discovery without a PRD. Test as a user, never read source code
 6. **Issue discovery** — Classify per `references/issue-taxonomy.md`. Record evidence per the Evidence Model.
 7. **Output report** — Use `templates/acceptance-report.md` adapted for explore mode (issues list, no pass/fail checklist)
 
-**Target 5-10 well-documented issues.** Depth over breadth.
+**Target 5-10 well-documented issues, but report the actual number found — fewer or more is fine.** Depth over breadth.
 
 ## Regression Mode
 
@@ -118,10 +119,12 @@ On build errors: extract with `grep "error:"`, report to user, stop QA until fix
 
 Classify evidence by issue type. See `references/issue-taxonomy.md` for full details.
 
-| Issue type | Evidence | Commands |
-|-----------|---------|---------|
-| **Interactive/behavioral** (bugs, UX) | Trace + step-by-step screenshots | `mac trace start` → actions with screenshots → `mac trace stop` |
-| **Static/visible** (typos, alignment) | Single screenshot | `mac capture screenshot` |
+| Issue type | Category | Evidence | Commands |
+|-----------|----------|---------|---------|
+| **Interactive/behavioral** (bugs, UX) | Functional, UX, Menu/Shortcut | Trace + step-by-step screenshots | `mac trace start` → actions with screenshots → `mac trace stop` |
+| **Static/visible** (typos, alignment) | Visual/UI, Content, Accessibility | Single screenshot | `mac capture screenshot` |
+
+> **Note:** `mac trace codegen` outputs raw text (not the standard JSON envelope). Parse its output as plain text.
 
 ## Output
 
@@ -143,9 +146,25 @@ All modes produce a Markdown report based on `templates/acceptance-report.md`.
 | `PERMISSION_DENIED` | `mac doctor permissions` — grant Accessibility access. |
 | `APP_NOT_FOUND` | Verify bundle ID. Ask user to check. |
 | `SESSION_NOT_FOUND` | `mac session start` — create new session. |
+| `SESSION_CONFLICT` | `mac session list` then `mac session end` — another session active. |
 
 Full error recovery table: `references/acceptance-sop.md` Section 5.
 Command syntax reference: `references/fsq-mac-commands.md`.
+
+## Locator Strategy
+
+Interact with elements using semantic locators. NEVER use screenshots to estimate pixel coordinates.
+
+| Priority | Method | When to use |
+|----------|--------|-------------|
+| 1 (best) | `--role` + `--name` | Default for all interactions |
+| 2 | `--id` | When app exposes meaningful accessibility identifiers |
+| 3 | `--label` | When name is unavailable but label is set |
+| 4 | Element ref (`e0`) | Within the same inspect snapshot only |
+| 5 | `--xpath` | Replayable but fragile; use when above fail |
+| 6 (last resort) | `mac input click-at` | ONLY for elements not discoverable via accessibility API (e.g., custom canvas). Document why semantic locators failed. |
+
+**Screenshots are for evidence only.** Never use a screenshot to guess coordinates for `click-at`.
 
 ## Key Rules
 
@@ -156,3 +175,4 @@ Command syntax reference: `references/fsq-mac-commands.md`.
 5. **Incremental writing** — Append findings to the report immediately after each verification. Do not batch at the end.
 6. **User perspective** — Test through UI and Accessibility API only. Never read application source code. You are testing as a user, not auditing code.
 7. **Depth over breadth** — In Explore mode, target 5-10 well-documented issues rather than a shallow scan of everything.
+8. **Inspect-first interaction** — Always run `mac element inspect` before interacting with elements. Use the structured element data (role, name, label) to target elements, not screenshot-derived coordinates. Prefer `mac element click --role button --name "Save"` over `mac element click e3` over `mac input click-at x y`.

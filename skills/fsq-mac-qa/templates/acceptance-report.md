@@ -23,7 +23,7 @@
 
 **Verdict:** Accepted / Not Accepted / Conditional
 
-> Pass criteria: >= 90% pass rate AND zero P0 issues.
+> Pass criteria: >= 90% pass rate (default threshold) AND zero P0 issues.
 
 ---
 

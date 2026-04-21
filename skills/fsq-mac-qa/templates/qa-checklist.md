@@ -79,4 +79,4 @@
 Pass = verified with screenshot evidence | Fail = screenshot + file issue | Pending = blocked, describe in Notes
 
 ## Pass Criteria
-Pass rate >= 90%, zero P0 issues (crashes, data loss, core flow broken), all fails documented with screenshots.
+Pass rate >= 90% (default; user may override threshold), zero P0 issues (crashes, data loss, core flow broken), all fails documented with screenshots.
